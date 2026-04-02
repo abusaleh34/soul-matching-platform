@@ -1,12 +1,6 @@
 fastapi
-uvicorn[standard]
-sqlalchemy
-asyncpg
-psycopg2-binary
-pgvector
-pydantic
-pydantic-settings
-alembic
-python-dotenv
-google-genai
+uvicorn
 supabase
+google-generativeai
+pydantic
+python-dotenv
