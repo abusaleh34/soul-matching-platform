@@ -124,8 +124,8 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
       final data = {
         "gender": _gender,
         "age": int.parse(_ageController.text),
-        "height_cm": int.parse(_heightController.text),
-        "weight_kg": _weightController.text.isNotEmpty ? int.parse(_weightController.text) : null,
+        "height": int.parse(_heightController.text),
+        "weight": _weightController.text.isNotEmpty ? int.parse(_weightController.text) : null,
         "marital_status": _maritalStatus,
         "has_children": _hasChildren == 'نعم',
         "children_living_with_user": _childrenLiving,
@@ -136,6 +136,7 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
         "education_level": _educationLevel,
         "employment_status": _employmentStatus,
         "smoking_habit": _smokingHabit,
+        "account_status": "pending",
       };
 
       showDialog(
@@ -145,13 +146,14 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
       );
 
       try {
-        final api = ApiService();
-        final String? profileId = await api.submitProfileSetup(data);
+        final userId = Supabase.instance.client.auth.currentUser!.id;
+        data['id'] = userId; // strictly link ID to the row
+
+        await Supabase.instance.client.from('profiles').upsert(data);
+        final String profileId = userId;
 
         if (!mounted) return;
         Navigator.of(context).pop(); 
-        
-        if (profileId == null) throw Exception("توليد المعرف الفريد من السحابة فشل");
 
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -283,11 +285,17 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
                   style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: AppTheme.primaryOliveGreen),
                 ),
                 const SizedBox(height: 12),
-                Text(
+                const Text(
                   "الصدق هنا هو أساس المطابقة الفعّالة والتصفية.",
-                  style: TextStyle(fontSize: 16, color: AppTheme.backgroundBeige.withOpacity(0.9)),
+                  style: TextStyle(fontSize: 16, color: AppTheme.backgroundBeige),
                 ),
                 const SizedBox(height: 48),
+
+                const Text(
+                  "البيانات الأساسية",
+                  style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.white),
+                ),
+                const SizedBox(height: 24),
 
                 // 1. Gender 
                 _buildDropdown("الجنس", _gender, _genders, (val) {

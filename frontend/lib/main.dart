@@ -3,6 +3,7 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'core/theme/app_theme.dart';
 import 'features/onboarding/screens/welcome_screen.dart';
 import 'features/onboarding/screens/profile_setup_screen.dart';
+import 'features/onboarding/screens/waiting_screen.dart';
 
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -47,26 +48,95 @@ class SmartMatchingApp extends StatelessWidget {
   }
 }
 
-class AuthGate extends StatelessWidget {
+class AuthGate extends StatefulWidget {
   const AuthGate({super.key});
 
   @override
+  State<AuthGate> createState() => _AuthGateState();
+}
+
+class _AuthGateState extends State<AuthGate> {
+  bool _isLoading = true;
+  Widget _currentScreen = const WelcomeScreen();
+
+  @override
+  void initState() {
+    super.initState();
+    _checkInitialAuth();
+  }
+
+  Future<void> _checkInitialAuth() async {
+    try {
+      // Small delay crucial for Flutter Web to retrieve local storage seamlessly
+      await Future.delayed(const Duration(milliseconds: 500));
+
+      // 4. Session Check: Verify initialize is done and grab the session safely.
+      final session = Supabase.instance.client.auth.currentSession;
+
+      if (session == null) {
+        _safeRoute(const WelcomeScreen());
+        return;
+      }
+
+      // 2. Robust Error Catching: Wrap Supabase query (checking account_status) in strict try-catch.
+      try {
+        final profile = await Supabase.instance.client
+            .from('profiles') // Assuming 'profiles' table
+            .select('account_status')
+            .eq('id', session.user.id)
+            .maybeSingle();
+
+        if (profile != null && profile['account_status'] != null) {
+          final status = profile['account_status'];
+          if (status == 'pending' || status == 'active') {
+            _safeRoute(WaitingScreen(profileId: session.user.id));
+            return;
+          }
+        }
+        
+        // Default to setup if profile is null or status is not pending/active
+        _safeRoute(const ProfileSetupScreen());
+      } catch (queryError) {
+        // 3. Safe Fallback Routing: Route safely and log without crashing.
+        debugPrint("AuthGate: Query failed. Error: $queryError");
+        _safeRoute(const ProfileSetupScreen()); // Route safely per instructions
+      }
+    } catch (e) {
+      debugPrint("AuthGate: Initial auth check failed. Error: $e");
+      _safeRoute(const WelcomeScreen());
+    }
+  }
+
+  void _safeRoute(Widget screen) {
+    if (mounted) {
+      setState(() {
+        _currentScreen = screen;
+        _isLoading = false;
+      });
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
+    // 1. Material Context: Ensure loading state is wrapped inside a Scaffold and Center.
+    if (_isLoading) {
+      return const Scaffold(
+        backgroundColor: AppTheme.backgroundIvory,
+        body: Center(
+          child: CircularProgressIndicator(color: AppTheme.primaryOliveGreen),
+        ),
+      );
+    }
+
+    // Handle incoming auth state changes asynchronously (e.g. sign-outs)
     return StreamBuilder<AuthState>(
       stream: Supabase.instance.client.auth.onAuthStateChange,
       builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Scaffold(
-            body: Center(child: CircularProgressIndicator(color: AppTheme.primaryOliveGreen)),
-          );
-        }
-        
         final session = Supabase.instance.client.auth.currentSession;
-        if (session != null) {
-          return const ProfileSetupScreen();
+        if (session == null) {
+          return const WelcomeScreen();
         }
-        
-        return const WelcomeScreen();
+        return _currentScreen;
       },
     );
   }

@@ -59,8 +59,19 @@ class _WaitingScreenState extends State<WaitingScreen> with SingleTickerProvider
       return;
     }
 
-    final apiService = ApiService();
-    final status = await apiService.checkUserStatus();
+    String status = 'pending';
+    try {
+      final response = await Supabase.instance.client
+          .from('profiles')
+          .select('account_status')
+          .eq('id', activeUserId)
+          .maybeSingle();
+      if (response != null && response['account_status'] != null) {
+        status = response['account_status'];
+      }
+    } catch (e) {
+      debugPrint("WaitingScreen live fetch error: $e");
+    }
 
     if (!mounted) return;
 
@@ -110,7 +121,7 @@ class _WaitingScreenState extends State<WaitingScreen> with SingleTickerProvider
       });
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text("ملفك لا يزال قيد الدراسة والمراجعة السرية. فضلاً حاول بعد قليل.", style: TextStyle(fontFamily: 'Tajawal', fontWeight: FontWeight.bold)),
+          content: Text("جاري العمل على تحليل ملفك... يرجى الانتظار قليلاً.", style: TextStyle(fontFamily: 'Tajawal', fontWeight: FontWeight.bold)),
           backgroundColor: Colors.orangeAccent,
           duration: Duration(seconds: 3),
         ),
