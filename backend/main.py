@@ -6,21 +6,16 @@ import google.generativeai as genai
 
 from models import WebhookPayload
 from ai_service import analyze_profile
+from app.db.database import supabase_client
+from app.api.match_endpoints import router as match_router
 
 load_dotenv()
 
 # Initialize FastAPI app
 app = FastAPI(title="AI Matchmaker Backend")
 
-# Initialize Supabase Admin Client (Service Role for RLS bypass)
-SUPABASE_URL = os.getenv("SUPABASE_URL")
-SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
-
-if SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY:
-    supabase: Client = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
-else:
-    print("Warning: Supabase credentials are not set in the environment.")
-    supabase = None
+# Mount Routers Cleanly
+app.include_router(match_router, prefix="/api", tags=["Matchmaking Cycle"])
 
 # Initialize Google Gemini Configuration
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
@@ -35,7 +30,7 @@ def health_check():
 
 @app.post("/webhook/analyze-profile")
 async def analyze_profile_webhook(payload: WebhookPayload):
-    if not supabase:
+    if not supabase_client:
         raise HTTPException(status_code=500, detail="Supabase not configured internally")
         
     # a. Check if account_status == 'pending'
@@ -43,10 +38,14 @@ async def analyze_profile_webhook(payload: WebhookPayload):
     if account_status != 'pending':
         return {"message": "Ignored: Status is not pending"}
         
-    # b. Extract id and questionnaire answers
+    # b. Extract id, questionnaire answers, and strict city constraints
     profile_id = payload.record.get("id")
     if not profile_id:
         raise HTTPException(status_code=400, detail="Profile ID missing in payload record")
+        
+    city = payload.record.get("city")
+    if not city or city.strip() == "":
+        return {"message": "Ignored: Strict spatial constraints require a validated City field to trigger AI Analysis (بصيرة النظام)."}
         
     # We fallback to the entire record if questionnaire_answers aren't nested natively yet.
     questionnaire_answers = payload.record.get("questionnaire_answers") or payload.record
@@ -59,7 +58,7 @@ async def analyze_profile_webhook(payload: WebhookPayload):
         
     # d. Update profiles table where id == record['id']
     try:
-        response = supabase.table('profiles').update({
+        response = supabase_client.table('profiles').update({
             "psychological_profile": psychological_profile,
             "account_status": "active"
         }).eq("id", profile_id).execute()

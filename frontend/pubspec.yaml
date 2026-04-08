@@ -39,6 +39,9 @@ dependencies:
   http: ^1.6.0
   supabase_flutter: ^2.12.2
   flutter_dotenv: ^6.0.0
+  geolocator: ^13.0.1
+  geocoding: ^3.0.0
+  shared_preferences: ^2.2.3
 
 dev_dependencies:
   flutter_test:
