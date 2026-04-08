@@ -1,18 +1,14 @@
 import os
-from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
-from sqlalchemy.orm import declarative_base
+from supabase import create_client, Client
 from dotenv import load_dotenv
 
 load_dotenv()
 
-# Using asyncpg for async PostgreSQL access
-DATABASE_URL = os.getenv("DATABASE_URL", "postgresql+asyncpg://postgres:postgres@127.0.0.1:5433/smart_matching")
+SUPABASE_URL = os.getenv("SUPABASE_URL")
+SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
 
-engine = create_async_engine(DATABASE_URL, echo=True)
-AsyncSessionLocal = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
-
-Base = declarative_base()
-
-async def get_db():
-    async with AsyncSessionLocal() as session:
-        yield session
+if SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY:
+    supabase_client: Client | None = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
+else:
+    # Safely degrade locally
+    supabase_client = None

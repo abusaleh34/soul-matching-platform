@@ -16,6 +16,7 @@ class _WaitingScreenState extends State<WaitingScreen> with SingleTickerProvider
   late AnimationController _pulseController;
   late Animation<double> _pulseAnimation;
   bool _isLoading = false;
+  String _userCity = 'منطقتك';
 
   @override
   void initState() {
@@ -63,11 +64,18 @@ class _WaitingScreenState extends State<WaitingScreen> with SingleTickerProvider
     try {
       final response = await Supabase.instance.client
           .from('profiles')
-          .select('account_status')
+          .select('account_status, city')
           .eq('id', activeUserId)
           .maybeSingle();
-      if (response != null && response['account_status'] != null) {
-        status = response['account_status'];
+      if (response != null) {
+        if (response['account_status'] != null) {
+           status = response['account_status'];
+        }
+        if (response['city'] != null && response['city'].toString().isNotEmpty) {
+           setState(() {
+              _userCity = response['city'];
+           });
+        }
       }
     } catch (e) {
       debugPrint("WaitingScreen live fetch error: $e");
@@ -171,7 +179,7 @@ class _WaitingScreenState extends State<WaitingScreen> with SingleTickerProvider
               ),
               const SizedBox(height: 24),
               Text(
-                "نحن نأخذ التوافق بجدية تامة. تتم الآن مطابقة ملفك النفسي وقيمك مع شركاء الحياة المحتملين بأعلى معايير السرية والموثوقية.\n\nسيتم إشعارك فور اعتماد ملفك.",
+                "نحن نبحث لك عن شريك روحي في $_userCity... سنرسل لك تنبيهاً فور العثور على التوافق المثالي.",
                 style: Theme.of(context).textTheme.bodyLarge?.copyWith(
                   color: AppTheme.backgroundBeige.withOpacity(0.8),
                   height: 1.8,

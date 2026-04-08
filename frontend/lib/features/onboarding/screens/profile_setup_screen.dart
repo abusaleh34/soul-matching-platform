@@ -3,6 +3,8 @@ import 'package:flutter/services.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/services/api_service.dart';
+import '../../../core/services/location_service.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'oath_screen.dart';
 import 'welcome_screen.dart';
 
@@ -17,10 +19,17 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
   final _formKey = GlobalKey<FormState>();
 
   // Core Data
+  final TextEditingController _firstNameController = TextEditingController();
   String? _gender;
-  final TextEditingController _ageController = TextEditingController();
-  final TextEditingController _heightController = TextEditingController();
-  final TextEditingController _weightController = TextEditingController();
+  String? _age;
+  String? _height;
+  String? _bodyType;
+  
+  // Partner Preferences
+  String? _prefMinAge;
+  String? _prefMaxAge;
+  String? _prefMinHeight;
+  String? _prefBodyType;
   String? _maritalStatus;
   String? _hasChildren; 
   String? _childrenLiving;
@@ -33,14 +42,21 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
   // Anti-Fraud Location
   bool _isLocating = false;
   bool _locationVerified = false;
+  bool _manualCityEntry = false;
   String _country = '';
   String _city = '';
+  final TextEditingController _cityController = TextEditingController();
 
   // Options
   final List<String> _genders = ['ذكر', 'أنثى'];
   final List<String> _educationLevels = ['ثانوي', 'دبلوم', 'بكالوريوس', 'ماجستير', 'دكتوراه'];
   final List<String> _employmentStatuses = ['موظف حكومي', 'موظف قطاع خاص', 'صاحب عمل حر', 'طالب', 'باحث عن عمل', 'متقاعد'];
   final List<String> _yesNo = ['نعم', 'لا'];
+  
+  final List<String> _ages = List.generate(48, (i) => (18 + i).toString()); // 18 to 65
+  final List<String> _heights = List.generate(81, (i) => (140 + i).toString()); // 140 to 220
+  final List<String> _bodyTypes = ['نحيف', 'رياضي', 'متوسط', 'ممتلئ'];
+  final List<String> _prefBodyTypes = ['نحيف', 'رياضي', 'متوسط', 'ممتلئ', 'لا يهم'];
 
   @override
   void initState() {
@@ -60,21 +76,40 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
 
   @override
   void dispose() {
-    _ageController.dispose();
-    _heightController.dispose();
-    _weightController.dispose();
+    _firstNameController.dispose();
+    _cityController.dispose();
     super.dispose();
   }
 
   void _detectLocation() async {
     setState(() => _isLocating = true);
-    await Future.delayed(const Duration(milliseconds: 1500));
-    setState(() {
-      _country = 'المملكة العربية السعودية';
-      _city = 'الرياض';
-      _locationVerified = true;
-      _isLocating = false;
-    });
+    
+    // Calls the robust centralized structure parsing Web and Mobile securely
+    final cityName = await LocationService.getCityNatively();
+    
+    if (!mounted) return;
+    
+    if (cityName != null) {
+       setState(() {
+         _country = 'المملكة العربية السعودية'; 
+         _city = cityName;
+         _locationVerified = true;
+         _isLocating = false;
+         _manualCityEntry = false;
+       });
+       ScaffoldMessenger.of(context).showSnackBar(
+         const SnackBar(content: Text('تم الربط بالمدينة أوتوماتيكياً بنجاح!', style: TextStyle(fontWeight: FontWeight.bold, fontFamily: 'Tajawal')), backgroundColor: AppTheme.primaryOliveGreen)
+       );
+    } else {
+       // Graceful UX Degradation: Flips the form manually
+       setState(() {
+         _isLocating = false;
+         _manualCityEntry = true;
+       });
+       ScaffoldMessenger.of(context).showSnackBar(
+         const SnackBar(content: Text('تعذر تحديد الموقع الجغرافي. الرجاء إدخال مدينتك يدوياً.', style: TextStyle(fontWeight: FontWeight.bold, fontFamily: 'Tajawal')), backgroundColor: Colors.orangeAccent)
+       );
+    }
   }
 
   List<String> get _maritalStatusOptions {
@@ -87,7 +122,8 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
   }
 
   bool _isFormValid() {
-    if (!_locationVerified) return false;
+    if (!_locationVerified && !_manualCityEntry) return false;
+    if (_manualCityEntry && _cityController.text.trim().isEmpty) return false;
     if (_gender == null) return false;
     if (_maritalStatus == null) return false;
     if (_educationLevel == null) return false;
@@ -104,14 +140,9 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
     if (_gender == 'أنثى' && _polygamyPref == null) return false;
     if (_gender == 'ذكر' && _maritalStatus == 'متزوج' && _desiredWife == null) return false;
 
-    // Strict Input Vulnerability Patch
-    if (_ageController.text.isEmpty) return false;
-    final age = int.tryParse(_ageController.text) ?? 0;
-    if (age < 18 || age > 85) return false;
-
-    if (_heightController.text.isEmpty) return false;
-    final height = int.tryParse(_heightController.text) ?? 0;
-    if (height < 120 || height > 230) return false;
+    if (_firstNameController.text.trim().isEmpty) return false;
+    if (_age == null || _height == null || _bodyType == null) return false;
+    if (_prefMinAge == null || _prefMaxAge == null || _prefMinHeight == null || _prefBodyType == null) return false;
 
     return true; 
   }
@@ -122,16 +153,21 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
       if (!_isFormValid()) return; // Protection
 
       final data = {
+        "first_name": _firstNameController.text.trim(),
         "gender": _gender,
-        "age": int.parse(_ageController.text),
-        "height": int.parse(_heightController.text),
-        "weight": _weightController.text.isNotEmpty ? int.parse(_weightController.text) : null,
+        "age": int.parse(_age!),
+        "height": int.parse(_height!),
+        "body_type": _bodyType,
+        "pref_min_age": int.parse(_prefMinAge!),
+        "pref_max_age": int.parse(_prefMaxAge!),
+        "pref_min_height": int.parse(_prefMinHeight!),
+        "pref_body_type": _prefBodyType,
         "marital_status": _maritalStatus,
         "has_children": _hasChildren == 'نعم',
         "children_living_with_user": _childrenLiving,
         "polygamy_preference": _gender == 'أنثى' ? _polygamyPref : _desiredWife,
         "country": _country,
-        "city": _city,
+        "city": _manualCityEntry ? _cityController.text.trim() : _city,
         "location_verified": _locationVerified,
         "education_level": _educationLevel,
         "employment_status": _employmentStatus,
@@ -151,6 +187,10 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
 
         await Supabase.instance.client.from('profiles').upsert(data);
         final String profileId = userId;
+        
+        // Anti-Amnesia Local Web Persistance Hook
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setString('current_user_id', profileId);
 
         if (!mounted) return;
         Navigator.of(context).pop(); 
@@ -296,6 +336,8 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
                   style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.white),
                 ),
                 const SizedBox(height: 24),
+                
+                _buildTextField("الاسم الأول (باللغة العربية)", _firstNameController, isRequired: true),
 
                 // 1. Gender 
                 _buildDropdown("الجنس", _gender, _genders, (val) {
@@ -310,15 +352,45 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
                 }),
 
                 if (_gender != null) ...[
+                  const SizedBox(height: 16),
+                  const Text("مواصفاتي", style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.white)),
+                  const SizedBox(height: 16),
                   Row(
-                    crossAxisAlignment: CrossAxisAlignment.start, 
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Expanded(child: _buildTextField("العمر", _ageController, isNumber: true)),
+                      Expanded(child: _buildDropdown("العمر", _age, _ages, (val) => setState(() => _age = val))),
                       const SizedBox(width: 16),
-                      Expanded(child: _buildTextField("الطول (سم)", _heightController, isNumber: true)),
+                      Expanded(child: _buildDropdown("الطول (سم)", _height, _heights, (val) => setState(() => _height = val))),
                     ],
                   ),
-                  _buildTextField("الوزن (كجم - اختياري)", _weightController, isNumber: true, isRequired: false),
+                  _buildDropdown("البنية الجسدية", _bodyType, _bodyTypes, (val) => setState(() => _bodyType = val)),
+                  
+                  const SizedBox(height: 24),
+                  const Divider(color: Colors.white24, thickness: 1),
+                  const SizedBox(height: 16),
+                  
+                  const Text("مواصفات الشريك المفضل", style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.white)),
+                  const SizedBox(height: 16),
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(child: _buildDropdown("العمر الأدنى", _prefMinAge, _ages, (val) => setState(() => _prefMinAge = val))),
+                      const SizedBox(width: 16),
+                      Expanded(child: _buildDropdown("العمر الأقصى", _prefMaxAge, _ages, (val) => setState(() => _prefMaxAge = val))),
+                    ],
+                  ),
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(child: _buildDropdown("الطول الأدنى (سم)", _prefMinHeight, _heights, (val) => setState(() => _prefMinHeight = val))),
+                      const SizedBox(width: 16),
+                      Expanded(child: _buildDropdown("بنية الشريك", _prefBodyType, _prefBodyTypes, (val) => setState(() => _prefBodyType = val))),
+                    ],
+                  ),
+                  
+                  const SizedBox(height: 24),
+                  const Divider(color: Colors.white24, thickness: 1),
+                  const SizedBox(height: 24),
 
                   _buildDropdown("الحالة الاجتماعية", _maritalStatus, _maritalStatusOptions, (val) {
                     setState(() {
@@ -355,15 +427,18 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
                   _buildDropdown("التدخين / الشيشة", _smokingHabit, _yesNo, (val) => setState(() => _smokingHabit = val)),
 
                   const SizedBox(height: 16),
-                  const Text("تأكيد الموقع الجغرافي الصارم:", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white)),
+                  const Text("تأكيد النطاق الجغرافي (للمطابقة الدقيقة):", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white)),
                   const SizedBox(height: 16),
-                  if (!_locationVerified)
+                  
+                  if (_manualCityEntry)
+                     _buildTextField("المدينة (الرجاء إدخال مدينتك يدوياً)", _cityController, isRequired: true)
+                  else if (!_locationVerified)
                     ElevatedButton.icon(
                       onPressed: _isLocating ? null : _detectLocation,
                       icon: _isLocating
                           ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(color: AppTheme.primaryNavyBlue, strokeWidth: 3))
                           : const Icon(Icons.location_on, color: AppTheme.primaryNavyBlue, size: 28),
-                      label: Text(_isLocating ? "جاري تحديد الموقع..." : "تحديد موقعي التلقائي", style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppTheme.primaryNavyBlue)),
+                      label: Text(_isLocating ? "جاري المطابقة المكانية..." : "تحديد مدينتي أوتوماتيكياً", style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppTheme.primaryNavyBlue)),
                       style: ElevatedButton.styleFrom(
                         backgroundColor: AppTheme.primaryOliveGreen,
                         padding: const EdgeInsets.symmetric(vertical: 20),
@@ -382,7 +457,7 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
                         children: [
                           const Icon(Icons.check_circle, color: AppTheme.primaryOliveGreen, size: 28),
                           const SizedBox(width: 16),
-                          Text("$_country، $_city", style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
+                          Text(_city, style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
                         ],
                       ),
                     ),

@@ -4,6 +4,8 @@ import 'core/theme/app_theme.dart';
 import 'features/onboarding/screens/welcome_screen.dart';
 import 'features/onboarding/screens/profile_setup_screen.dart';
 import 'features/onboarding/screens/waiting_screen.dart';
+import 'features/matching/screens/focus_room_screen.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -72,24 +74,44 @@ class _AuthGateState extends State<AuthGate> {
 
       // 4. Session Check: Verify initialize is done and grab the session safely.
       final session = Supabase.instance.client.auth.currentSession;
+      
+      // Persistant Web Amnesia Recovery Hook
+      final prefs = await SharedPreferences.getInstance();
+      final localId = prefs.getString('current_user_id');
+      
+      final currentUserId = session?.user.id ?? localId;
 
-      if (session == null) {
+      if (currentUserId == null) {
         _safeRoute(const WelcomeScreen());
         return;
       }
 
-      // 2. Robust Error Catching: Wrap Supabase query (checking account_status) in strict try-catch.
+      // 2. Strict Room and Profile Catching Engine
       try {
+        // Prioritize querying the active matches table natively for any locks
+        final matchRes = await Supabase.instance.client
+            .from('matches')
+            .select('id, match_percentage, ai_reasoning, expires_at, room_status')
+            .or('user1_id.eq.$currentUserId,user2_id.eq.$currentUserId')
+            .eq('room_status', 'active')
+            .maybeSingle();
+            
+        if (matchRes != null) {
+          _safeRoute(FocusRoomScreen(matchData: matchRes));
+          return;
+        }
+
+        // Fallback to checking normal un-paired account setup routing hooks
         final profile = await Supabase.instance.client
             .from('profiles') // Assuming 'profiles' table
             .select('account_status')
-            .eq('id', session.user.id)
+            .eq('id', currentUserId)
             .maybeSingle();
 
         if (profile != null && profile['account_status'] != null) {
           final status = profile['account_status'];
           if (status == 'pending' || status == 'active') {
-            _safeRoute(WaitingScreen(profileId: session.user.id));
+            _safeRoute(WaitingScreen(profileId: currentUserId));
             return;
           }
         }
@@ -118,7 +140,6 @@ class _AuthGateState extends State<AuthGate> {
 
   @override
   Widget build(BuildContext context) {
-    // 1. Material Context: Ensure loading state is wrapped inside a Scaffold and Center.
     if (_isLoading) {
       return const Scaffold(
         backgroundColor: AppTheme.backgroundIvory,
@@ -128,16 +149,6 @@ class _AuthGateState extends State<AuthGate> {
       );
     }
 
-    // Handle incoming auth state changes asynchronously (e.g. sign-outs)
-    return StreamBuilder<AuthState>(
-      stream: Supabase.instance.client.auth.onAuthStateChange,
-      builder: (context, snapshot) {
-        final session = Supabase.instance.client.auth.currentSession;
-        if (session == null) {
-          return const WelcomeScreen();
-        }
-        return _currentScreen;
-      },
-    );
+    return _currentScreen; // Relies on the robust manual initialization tracking!
   }
 }
