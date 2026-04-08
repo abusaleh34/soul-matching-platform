@@ -6,16 +6,25 @@ import 'features/onboarding/screens/profile_setup_screen.dart';
 import 'features/onboarding/screens/waiting_screen.dart';
 import 'features/matching/screens/focus_room_screen.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 
 // Main Application Entry Point
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   
+  try {
+    await dotenv.load(fileName: ".env");
+  } catch (e) {
+    print("No .env file found. Falling back to environment variables.");
+  }
+  
+  final supabaseUrl = dotenv.env['SUPABASE_URL'] ?? const String.fromEnvironment('SUPABASE_URL', defaultValue: 'https://vhayahstcouubjryilvv.supabase.co');
+  final supabaseAnonKey = dotenv.env['SUPABASE_ANON_KEY'] ?? const String.fromEnvironment('SUPABASE_ANON_KEY', defaultValue: '***REMOVED***');
+  
   await Supabase.initialize(
-    url: 'https://vhayahstcouubjryilvv.supabase.co',
-    anonKey: '***REMOVED***',
+    url: supabaseUrl,
+    anonKey: supabaseAnonKey,
     authOptions: const FlutterAuthClientOptions(
       authFlowType: AuthFlowType.pkce,
     ),
