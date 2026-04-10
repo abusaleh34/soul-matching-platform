@@ -17,10 +17,12 @@ class _WaitingScreenState extends State<WaitingScreen> with SingleTickerProvider
   late Animation<double> _pulseAnimation;
   bool _isLoading = false;
   String _userCity = 'منطقتك';
+  String? _firstName;
 
   @override
   void initState() {
     super.initState();
+    _fetchProfileData();
     _pulseController = AnimationController(
       vsync: this,
       duration: const Duration(seconds: 2),
@@ -35,6 +37,33 @@ class _WaitingScreenState extends State<WaitingScreen> with SingleTickerProvider
   void dispose() {
     _pulseController.dispose();
     super.dispose();
+  }
+
+  Future<void> _fetchProfileData() async {
+    final currentUserId = Supabase.instance.client.auth.currentUser?.id;
+    final activeUserId = currentUserId ?? widget.profileId; 
+
+    if (activeUserId.isNotEmpty) {
+      try {
+        final response = await Supabase.instance.client
+            .from('profiles')
+            .select('first_name, city')
+            .eq('id', activeUserId)
+            .maybeSingle();
+        if (response != null && mounted) {
+           setState(() {
+             if (response['first_name'] != null && response['first_name'].toString().isNotEmpty) {
+                _firstName = response['first_name'];
+             }
+             if (response['city'] != null && response['city'].toString().isNotEmpty) {
+                _userCity = response['city'];
+             }
+           });
+        }
+      } catch (e) {
+        debugPrint("WaitingScreen live init fetch error: $e");
+      }
+    }
   }
 
   Future<void> _checkStatus() async {
@@ -64,18 +93,21 @@ class _WaitingScreenState extends State<WaitingScreen> with SingleTickerProvider
     try {
       final response = await Supabase.instance.client
           .from('profiles')
-          .select('account_status, city')
+          .select('account_status, city, first_name')
           .eq('id', activeUserId)
           .maybeSingle();
       if (response != null) {
         if (response['account_status'] != null) {
            status = response['account_status'];
         }
-        if (response['city'] != null && response['city'].toString().isNotEmpty) {
-           setState(() {
-              _userCity = response['city'];
-           });
-        }
+        setState(() {
+          if (response['city'] != null && response['city'].toString().isNotEmpty) {
+             _userCity = response['city'];
+          }
+          if (response['first_name'] != null && response['first_name'].toString().isNotEmpty) {
+             _firstName = response['first_name'];
+          }
+        });
       }
     } catch (e) {
       debugPrint("WaitingScreen live fetch error: $e");
@@ -169,7 +201,9 @@ class _WaitingScreenState extends State<WaitingScreen> with SingleTickerProvider
               ),
               const SizedBox(height: 56),
               Text(
-                "جاري تحليل بصمتك النفسية بدقة...",
+                _firstName != null && _firstName!.isNotEmpty
+                    ? "يا $_firstName، جاري تحليل بصمتك بدقة..."
+                    : "جاري تحليل بصمتك بدقة...",
                 style: Theme.of(context).textTheme.headlineMedium?.copyWith(
                   color: AppTheme.backgroundIvory,
                   fontWeight: FontWeight.bold,
