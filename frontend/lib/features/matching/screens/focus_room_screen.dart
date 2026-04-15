@@ -24,7 +24,7 @@ class _FocusRoomScreenState extends State<FocusRoomScreen> {
   late Map<String, dynamic> _currentMatchData;
   StreamSubscription? _matchSubscription;
   bool _isLoadingPartner = true;
-  late final Stream<List<Map<String, dynamic>>> _messagesStream;
+  late Stream<List<Map<String, dynamic>>> _messagesStream;
   int _previousMessageCount = 0;
 
   @override
@@ -202,14 +202,6 @@ class _FocusRoomScreenState extends State<FocusRoomScreen> {
         'sender_id': currentUserId,
         'content': text,
       });
-      
-      // Update timer securely triggering the countdown natively strictly to 24 hours
-      if (_currentMatchData['expires_at'] == null) {
-         final newExpiresAt = DateTime.now().toUtc().add(const Duration(hours: 24)).toIso8601String();
-         await Supabase.instance.client.from('matches').update({
-             'expires_at': newExpiresAt
-         }).eq('id', matchId);
-      }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('فشل الإرسال: $e', style: const TextStyle(fontWeight: FontWeight.bold))));
@@ -514,7 +506,7 @@ class _FocusRoomScreenState extends State<FocusRoomScreen> {
                   StreamBuilder<List<Map<String, dynamic>>>(
                       stream: _messagesStream,
                       builder: (context, snapshot) {
-                        if (snapshot.connectionState == ConnectionState.waiting) {
+                        if (snapshot.connectionState == ConnectionState.waiting && !snapshot.hasData) {
                           return const SliverToBoxAdapter(
                             child: Center(child: CircularProgressIndicator(color: AppTheme.primaryOliveGreen)),
                           );
