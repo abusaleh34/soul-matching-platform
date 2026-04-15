@@ -25,6 +25,7 @@ class _FocusRoomScreenState extends State<FocusRoomScreen> {
   StreamSubscription? _matchSubscription;
   bool _isLoadingPartner = true;
   late final Stream<List<Map<String, dynamic>>> _messagesStream;
+  int _previousMessageCount = 0;
 
   @override
   void initState() {
@@ -209,16 +210,6 @@ class _FocusRoomScreenState extends State<FocusRoomScreen> {
              'expires_at': newExpiresAt
          }).eq('id', matchId);
       }
-      
-      Future.delayed(const Duration(milliseconds: 100), () {
-        if (_scrollController.hasClients) {
-          _scrollController.animateTo(
-            _scrollController.position.maxScrollExtent,
-            duration: const Duration(milliseconds: 300),
-            curve: Curves.easeOut,
-          );
-        }
-      });
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('فشل الإرسال: $e', style: const TextStyle(fontWeight: FontWeight.bold))));
@@ -530,6 +521,20 @@ class _FocusRoomScreenState extends State<FocusRoomScreen> {
                         }
                         
                         final messages = snapshot.data ?? [];
+                        
+                        if (messages.length > _previousMessageCount) {
+                          _previousMessageCount = messages.length;
+                          WidgetsBinding.instance.addPostFrameCallback((_) {
+                            if (_scrollController.hasClients) {
+                              _scrollController.animateTo(
+                                _scrollController.position.maxScrollExtent,
+                                duration: const Duration(milliseconds: 300),
+                                curve: Curves.easeOut,
+                              );
+                            }
+                          });
+                        }
+
                         if (messages.isEmpty) {
                           return SliverToBoxAdapter(
                             child: Padding(
