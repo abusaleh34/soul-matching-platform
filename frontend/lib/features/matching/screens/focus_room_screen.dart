@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/services/api_service.dart';
+import 'notification_bell.dart';
 
 class FocusRoomScreen extends StatefulWidget {
   final Map<String, dynamic> matchData;
@@ -251,6 +253,134 @@ class _FocusRoomScreenState extends State<FocusRoomScreen> {
     return "${twoDigits(d.inHours)}:$twoDigitMinutes:$twoDigitSeconds";
   }
 
+  void _showCounselorAdviceBottomSheet(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: AppTheme.primaryNavyBlue,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (context) {
+        return DraggableScrollableSheet(
+          initialChildSize: 0.7,
+          minChildSize: 0.5,
+          maxChildSize: 0.95,
+          expand: false,
+          builder: (context, scrollController) {
+            return FutureBuilder<String>(
+              future: ApiService().fetchCounselorAdvice(_currentMatchData['id']),
+              builder: (context, snapshot) {
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return Center(
+                    child: Padding(
+                      padding: const EdgeInsets.all(32.0),
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: const [
+                          CircularProgressIndicator(color: Color(0xFFD4AF37)),
+                          SizedBox(height: 24),
+                          Text(
+                            "جاري تحليل أنماط التواصل وبناء التوصيات الزوجية...",
+                            style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+                            textAlign: TextAlign.center,
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+                } else if (snapshot.hasError) {
+                  return Center(
+                    child: Padding(
+                      padding: const EdgeInsets.all(32.0),
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          const Icon(Icons.error_outline, color: Colors.redAccent, size: 48),
+                          const SizedBox(height: 16),
+                          Text(
+                            "تعذر الاتصال بالمستشار الذكي:\n${snapshot.error}",
+                            style: const TextStyle(color: Colors.redAccent, fontSize: 16),
+                            textAlign: TextAlign.center,
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+                } else {
+                  final advice = snapshot.data ?? 'لا توجد نصيحة حالية.';
+                  return ListView(
+                    controller: scrollController,
+                    padding: const EdgeInsets.all(24.0),
+                    children: [
+                      Center(
+                        child: Container(
+                          width: 40,
+                          height: 5,
+                          decoration: BoxDecoration(
+                            color: Colors.white24,
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 24),
+                      Row(
+                        children: const [
+                          Icon(Icons.stars, color: Color(0xFFD4AF37), size: 28),
+                          SizedBox(width: 12),
+                          Text(
+                            "نصيحة المستشار الأسري الذكي",
+                            style: TextStyle(
+                              color: Color(0xFFD4AF37),
+                              fontSize: 20,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 24),
+                      Container(
+                        padding: const EdgeInsets.all(20),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withOpacity(0.03),
+                          borderRadius: BorderRadius.circular(16),
+                          border: Border.all(color: Colors.white.withOpacity(0.08)),
+                        ),
+                        child: Text(
+                          advice,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 16,
+                            height: 1.8,
+                          ),
+                          textAlign: TextAlign.right,
+                        ),
+                      ),
+                      const SizedBox(height: 32),
+                      ElevatedButton(
+                        onPressed: () => Navigator.pop(context),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: AppTheme.primaryOliveGreen,
+                          padding: const EdgeInsets.symmetric(vertical: 16),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        ),
+                        child: const Text(
+                          "فهمت النصيحة",
+                          style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+                        ),
+                      ),
+                      const SizedBox(height: 24),
+                    ],
+                  );
+                }
+              },
+            );
+          },
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final percentage = _currentMatchData['match_percentage'] ?? 0;
@@ -281,6 +411,9 @@ class _FocusRoomScreenState extends State<FocusRoomScreen> {
         backgroundColor: Colors.transparent,
         elevation: 0,
         foregroundColor: AppTheme.backgroundIvory,
+        actions: const [
+          NotificationBell(),
+        ],
       ),
       body: SafeArea(
         child: Column(
@@ -498,6 +631,78 @@ class _FocusRoomScreenState extends State<FocusRoomScreen> {
                             ),
                           ),
                           const SizedBox(height: 32),
+
+                          // Premium Card: المستشار الذكي ما بعد الزواج
+                          Container(
+                            padding: const EdgeInsets.all(24),
+                            decoration: BoxDecoration(
+                              gradient: LinearGradient(
+                                colors: [
+                                  const Color(0xFFD4AF37).withOpacity(0.15),
+                                  Colors.white.withOpacity(0.02),
+                                ],
+                                begin: Alignment.topLeft,
+                                end: Alignment.bottomRight,
+                              ),
+                              borderRadius: BorderRadius.circular(16),
+                              border: Border.all(color: const Color(0xFFD4AF37).withOpacity(0.4), width: 1.5),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: const Color(0xFFD4AF37).withOpacity(0.05),
+                                  blurRadius: 12,
+                                  offset: const Offset(0, 4),
+                                )
+                              ],
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: [
+                                Row(
+                                  children: const [
+                                    Icon(Icons.stars, color: Color(0xFFD4AF37), size: 28),
+                                    SizedBox(width: 12),
+                                    Text(
+                                      "المستشار الذكي ما بعد الزواج",
+                                      style: TextStyle(
+                                        color: Color(0xFFD4AF37),
+                                        fontSize: 18,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 12),
+                                Text(
+                                  "استخرج نصيحة تواصل ذهبية مخصصة من الذكاء الاصطناعي بناءً على تحليل ملفاتكما النفسية مجتمعة.",
+                                  style: TextStyle(
+                                    color: AppTheme.backgroundBeige.withOpacity(0.8),
+                                    fontSize: 14,
+                                    height: 1.6,
+                                  ),
+                                  textAlign: TextAlign.right,
+                                ),
+                                const SizedBox(height: 20),
+                                ElevatedButton.icon(
+                                  icon: const Icon(Icons.psychology, color: AppTheme.primaryNavyBlue),
+                                  label: const Text(
+                                    "الحصول على النصيحة الذكية",
+                                    style: TextStyle(
+                                      color: AppTheme.primaryNavyBlue,
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 16,
+                                    ),
+                                  ),
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: const Color(0xFFD4AF37),
+                                    padding: const EdgeInsets.symmetric(vertical: 14),
+                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                  ),
+                                  onPressed: () => _showCounselorAdviceBottomSheet(context),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(height: 32),
                         ],
                       ),
                     ),
@@ -517,6 +722,9 @@ class _FocusRoomScreenState extends State<FocusRoomScreen> {
                         if (messages.length > _previousMessageCount) {
                           _previousMessageCount = messages.length;
                           WidgetsBinding.instance.addPostFrameCallback((_) {
+                            // Suppress notifications since we are active in the chat room
+                            ApiService().markAllNotificationsAsRead();
+
                             if (_scrollController.hasClients) {
                               _scrollController.animateTo(
                                 _scrollController.position.maxScrollExtent,
@@ -533,7 +741,7 @@ class _FocusRoomScreenState extends State<FocusRoomScreen> {
                               padding: const EdgeInsets.all(32.0),
                               child: Center(
                                 child: Text(
-                                  "ასأل بصدق، الحوار مسجل ومؤقت...",
+                                  "اسأل بصدق، الحوار مسجل ومؤقت...",
                                   style: TextStyle(color: Colors.white.withOpacity(0.5), fontSize: 14),
                                 ),
                               ),
@@ -549,28 +757,71 @@ class _FocusRoomScreenState extends State<FocusRoomScreen> {
                                 final msg = messages[index];
                                 final isMe = msg['sender_id'] == currentUserId;
                                 
+                                final createdAtStr = msg['created_at'] as String?;
+                                String timeStr = '';
+                                if (createdAtStr != null) {
+                                  try {
+                                    final dateTime = DateTime.parse(createdAtStr).toLocal();
+                                    final hour = dateTime.hour;
+                                    final minute = dateTime.minute.toString().padLeft(2, '0');
+                                    final period = hour >= 12 ? 'م' : 'ص';
+                                    final formattedHour = hour > 12 ? hour - 12 : (hour == 0 ? 12 : hour);
+                                    timeStr = '$formattedHour:$minute $period';
+                                  } catch (_) {}
+                                }
+                                
                                 return Align(
                                   alignment: isMe ? Alignment.centerLeft : Alignment.centerRight,
-                                  child: Container(
-                                    constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.75),
-                                    margin: const EdgeInsets.symmetric(vertical: 6, horizontal: 16),
-                                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                                    decoration: BoxDecoration(
-                                      color: isMe ? AppTheme.primaryOliveGreen : Colors.white.withOpacity(0.1),
-                                      borderRadius: BorderRadius.only(
-                                        topLeft: const Radius.circular(16),
-                                        topRight: const Radius.circular(16),
-                                        bottomLeft: isMe ? const Radius.circular(0) : const Radius.circular(16),
-                                        bottomRight: isMe ? const Radius.circular(16) : const Radius.circular(0),
-                                      ),
-                                    ),
-                                    child: Text(
-                                      msg['content'] ?? '',
-                                      style: TextStyle(
-                                        color: isMe ? Colors.white : Colors.white.withOpacity(0.9), 
-                                        fontSize: 16,
-                                        height: 1.4,
-                                      ),
+                                  child: Padding(
+                                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                                    child: Column(
+                                      crossAxisAlignment: isMe ? CrossAxisAlignment.start : CrossAxisAlignment.end,
+                                      children: [
+                                        Container(
+                                          constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.75),
+                                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                                          decoration: BoxDecoration(
+                                            color: isMe ? AppTheme.primaryOliveGreen : Colors.white.withOpacity(0.1),
+                                            borderRadius: BorderRadius.only(
+                                              topLeft: const Radius.circular(16),
+                                              topRight: const Radius.circular(16),
+                                              bottomLeft: isMe ? const Radius.circular(0) : const Radius.circular(16),
+                                              bottomRight: isMe ? const Radius.circular(16) : const Radius.circular(0),
+                                            ),
+                                          ),
+                                          child: Text(
+                                            msg['content'] ?? '',
+                                            style: TextStyle(
+                                              color: isMe ? Colors.white : Colors.white.withOpacity(0.9), 
+                                              fontSize: 16,
+                                              height: 1.4,
+                                            ),
+                                          ),
+                                        ),
+                                        const SizedBox(height: 4),
+                                        Padding(
+                                          padding: const EdgeInsets.symmetric(horizontal: 8.0),
+                                          child: Row(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              Text(
+                                                timeStr,
+                                                style: TextStyle(color: Colors.white.withOpacity(0.4), fontSize: 10),
+                                              ),
+                                              if (isMe) ...[
+                                                const SizedBox(width: 4),
+                                                Icon(
+                                                  Icons.done_all,
+                                                  size: 14,
+                                                  color: (msg['is_read'] ?? false)
+                                                      ? AppTheme.primaryOliveGreen
+                                                      : Colors.white.withOpacity(0.4),
+                                                ),
+                                              ]
+                                            ],
+                                          ),
+                                        ),
+                                      ],
                                     ),
                                   ),
                                 );
