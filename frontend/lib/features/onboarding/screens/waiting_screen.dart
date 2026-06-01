@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/services/api_service.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../matching/screens/match_screen.dart';
+import '../../matching/screens/notification_bell.dart';
+import '../../matching/screens/admin_dashboard_screen.dart';
 
 class WaitingScreen extends StatefulWidget {
   final String profileId;
@@ -18,6 +21,7 @@ class _WaitingScreenState extends State<WaitingScreen> with SingleTickerProvider
   bool _isLoading = false;
   String _userCity = 'منطقتك';
   String? _firstName;
+  bool _isAdmin = false;
 
   @override
   void initState() {
@@ -47,7 +51,7 @@ class _WaitingScreenState extends State<WaitingScreen> with SingleTickerProvider
       try {
         final response = await Supabase.instance.client
             .from('profiles')
-            .select('first_name, city')
+            .select('first_name, city, is_admin')
             .eq('id', activeUserId)
             .maybeSingle();
         if (response != null && mounted) {
@@ -58,6 +62,7 @@ class _WaitingScreenState extends State<WaitingScreen> with SingleTickerProvider
              if (response['city'] != null && response['city'].toString().isNotEmpty) {
                 _userCity = response['city'];
              }
+             _isAdmin = response['is_admin'] as bool? ?? false;
            });
         }
       } catch (e) {
@@ -93,7 +98,7 @@ class _WaitingScreenState extends State<WaitingScreen> with SingleTickerProvider
     try {
       final response = await Supabase.instance.client
           .from('profiles')
-          .select('account_status, city, first_name')
+          .select('account_status, city, first_name, is_admin')
           .eq('id', activeUserId)
           .maybeSingle();
       if (response != null) {
@@ -107,6 +112,7 @@ class _WaitingScreenState extends State<WaitingScreen> with SingleTickerProvider
           if (response['first_name'] != null && response['first_name'].toString().isNotEmpty) {
              _firstName = response['first_name'];
           }
+          _isAdmin = response['is_admin'] as bool? ?? false;
         });
       }
     } catch (e) {
@@ -171,8 +177,31 @@ class _WaitingScreenState extends State<WaitingScreen> with SingleTickerProvider
 
   @override
   Widget build(BuildContext context) {
+    final currentUserEmail = Supabase.instance.client.auth.currentUser?.email ?? '';
+    final isDemoAdminBypass = kDebugMode && currentUserEmail.endsWith('@admin.com');
+    final showAdminButton = _isAdmin || isDemoAdminBypass;
+
     return Scaffold(
       backgroundColor: AppTheme.primaryNavyBlue, // Premium Dark Theme
+      appBar: AppBar(
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        leading: showAdminButton
+            ? IconButton(
+                icon: const Icon(Icons.admin_panel_settings, color: Colors.amberAccent, size: 28),
+                tooltip: 'لوحة تحكم الإشراف',
+                onPressed: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (context) => const AdminDashboardScreen()),
+                  );
+                },
+              )
+            : null,
+        actions: const [
+          NotificationBell(),
+        ],
+      ),
       body: SafeArea(
         child: Center(
           child: ConstrainedBox(

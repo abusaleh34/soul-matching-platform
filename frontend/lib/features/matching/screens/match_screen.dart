@@ -3,6 +3,7 @@ import '../../../core/theme/app_theme.dart';
 import '../../../core/models/match_result.dart';
 import '../../../core/services/api_service.dart';
 import 'chat_room_screen.dart';
+import 'notification_bell.dart';
 
 class MatchScreen extends StatefulWidget {
   final String userId;
@@ -49,6 +50,9 @@ class _MatchScreenState extends State<MatchScreen> with SingleTickerProviderStat
         elevation: 0,
         centerTitle: true,
         foregroundColor: AppTheme.backgroundIvory,
+        actions: const [
+          NotificationBell(),
+        ],
       ),
       body: SafeArea(
         child: Center(

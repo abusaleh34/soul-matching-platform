@@ -105,4 +105,93 @@ class ApiService {
       return "error";
     }
   }
+
+  // 6. دالة لجلب نصيحة المستشار الذكي ما بعد الزواج
+  Future<String> fetchCounselorAdvice(String matchId) async {
+    try {
+      final response = await http.post(
+        Uri.parse('$baseUrl/api/post-marriage-counselor/$matchId'),
+      );
+      if (response.statusCode == 200) {
+        final data = jsonDecode(utf8.decode(response.bodyBytes));
+        return data['advice'] ?? 'لم نتمكن من الحصول على النصيحة.';
+      } else {
+        throw Exception('فشل في الاتصال بالمستشار الذكي. الرمز: ${response.statusCode}');
+      }
+    } catch (e) {
+      print("Counselor Fetch Error: $e");
+      rethrow;
+    }
+  }
+
+  // 7. دالة جلب إحصائيات لوحة التحكم للمشرفين (محمية بـ JWT)
+  Future<Map<String, dynamic>> fetchAdminStats() async {
+    final token = Supabase.instance.client.auth.currentSession?.accessToken;
+    if (token == null) {
+      throw Exception('عذراً، يجب تسجيل الدخول للوصول للإحصائيات.');
+    }
+
+    try {
+      final response = await http.get(
+        Uri.parse('$baseUrl/api/admin/stats'),
+        headers: {
+          'Authorization': 'Bearer $token',
+        },
+      );
+      if (response.statusCode == 200) {
+        return jsonDecode(utf8.decode(response.bodyBytes));
+      } else {
+        final errorBody = jsonDecode(utf8.decode(response.bodyBytes));
+        throw Exception(errorBody['detail'] ?? 'فشل تحميل الإحصائيات (${response.statusCode})');
+      }
+    } catch (e) {
+      print("Fetch Admin Stats Error: $e");
+      rethrow;
+    }
+  }
+
+  // 8. دالة لتشغيل عملية المطابقة يدوياً للمشرف
+  Future<Map<String, dynamic>> triggerMatchmaking() async {
+    try {
+      final response = await http.post(
+        Uri.parse('$baseUrl/api/trigger-matchmaking'),
+      );
+      if (response.statusCode == 200) {
+        return jsonDecode(utf8.decode(response.bodyBytes));
+      } else {
+        throw Exception('فشل تشغيل عملية المطابقة. الرمز: ${response.statusCode}');
+      }
+    } catch (e) {
+      print("Trigger Matchmaking Error: $e");
+      rethrow;
+    }
+  }
+
+  // 9. دالة لتحديث حالة التنبيه إلى "مقروء"
+  Future<void> markNotificationAsRead(String id) async {
+    try {
+      await Supabase.instance.client
+          .from('notifications')
+          .update({'is_read': true})
+          .eq('id', id);
+    } catch (e) {
+      print("Error marking notification as read: $e");
+      rethrow;
+    }
+  }
+
+  // 10. دالة لتحديث حالة كافة التنبيهات إلى "مقروءة" للمستخدم الحالي
+  Future<void> markAllNotificationsAsRead() async {
+    final userId = _currentUserId;
+    if (userId == null) return;
+    try {
+      await Supabase.instance.client
+          .from('notifications')
+          .update({'is_read': true})
+          .eq('user_id', userId);
+    } catch (e) {
+      print("Error marking all notifications as read: $e");
+      rethrow;
+    }
+  }
 }
