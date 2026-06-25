@@ -119,11 +119,11 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                           child: Column(
                             mainAxisAlignment: MainAxisAlignment.center,
                             children: [
-                              Icon(Icons.notifications_none, size: 80, color: AppTheme.backgroundBeige.withOpacity(0.3)),
+                              Icon(Icons.notifications_none, size: 80, color: AppTheme.backgroundBeige.withValues(alpha: 0.3)),
                               const SizedBox(height: 16),
                               Text(
                                 'لا توجد تنبيهات حالية',
-                                style: TextStyle(color: AppTheme.backgroundBeige.withOpacity(0.5), fontSize: 18, fontWeight: FontWeight.bold),
+                                style: TextStyle(color: AppTheme.backgroundBeige.withValues(alpha: 0.5), fontSize: 18, fontWeight: FontWeight.bold),
                               ),
                             ],
                           ),
@@ -150,13 +150,13 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                               padding: const EdgeInsets.all(16),
                               decoration: BoxDecoration(
                                 color: isRead 
-                                    ? Colors.white.withOpacity(0.02) 
-                                    : Colors.white.withOpacity(0.08),
+                                    ? Colors.white.withValues(alpha: 0.02) 
+                                    : Colors.white.withValues(alpha: 0.08),
                                 borderRadius: BorderRadius.circular(16),
                                 border: Border.all(
                                   color: isRead 
-                                      ? Colors.white.withOpacity(0.05) 
-                                      : AppTheme.primaryOliveGreen.withOpacity(0.3),
+                                      ? Colors.white.withValues(alpha: 0.05) 
+                                      : AppTheme.primaryOliveGreen.withValues(alpha: 0.3),
                                   width: 1.5,
                                 ),
                               ),
@@ -167,8 +167,8 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                                     padding: const EdgeInsets.all(10),
                                     decoration: BoxDecoration(
                                       color: isRead 
-                                          ? Colors.white.withOpacity(0.05) 
-                                          : AppTheme.primaryOliveGreen.withOpacity(0.15),
+                                          ? Colors.white.withValues(alpha: 0.05) 
+                                          : AppTheme.primaryOliveGreen.withValues(alpha: 0.15),
                                       shape: BoxShape.circle,
                                     ),
                                     child: Icon(
@@ -198,7 +198,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                                             const SizedBox(width: 8),
                                             Text(
                                               _formatDateTime(item['created_at'] as String?),
-                                              style: TextStyle(color: Colors.white.withOpacity(0.4), fontSize: 12),
+                                              style: TextStyle(color: Colors.white.withValues(alpha: 0.4), fontSize: 12),
                                             ),
                                           ],
                                         ),
@@ -206,7 +206,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                                         Text(
                                           item['body'] ?? '',
                                           style: TextStyle(
-                                            color: Colors.white.withOpacity(0.7),
+                                            color: Colors.white.withValues(alpha: 0.7),
                                             fontSize: 14,
                                             height: 1.4,
                                           ),

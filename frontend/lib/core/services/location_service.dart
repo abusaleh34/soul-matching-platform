@@ -35,8 +35,10 @@ class LocationService {
     try {
       // 10 second timeout block prevents Web instances stalling asynchronously 
       Position position = await Geolocator.getCurrentPosition(
-        desiredAccuracy: LocationAccuracy.medium, // Better yield on Web browsers
-        timeLimit: const Duration(seconds: 10),
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.medium, // Better yield on Web browsers
+          timeLimit: Duration(seconds: 10),
+        ),
       );
       
       try {

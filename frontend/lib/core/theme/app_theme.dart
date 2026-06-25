@@ -14,11 +14,10 @@ class AppTheme {
       colorScheme: const ColorScheme.light(
         primary: primaryOliveGreen,
         secondary: primaryNavyBlue,
-        background: backgroundIvory,
         surface: Colors.white,
         onPrimary: Colors.white,
         onSecondary: Colors.white,
-        onBackground: primaryNavyBlue,
+        onSurface: primaryNavyBlue,
       ),
       fontFamily: 'Tajawal', // Suggested premium Arabic font
       textTheme: const TextTheme(

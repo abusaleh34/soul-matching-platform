@@ -1,9 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import '../../../core/theme/app_theme.dart';
-import '../../../core/services/api_service.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import '../../matching/screens/match_screen.dart';
+import '../../matching/screens/focus_room_screen.dart';
 import '../../matching/screens/notification_bell.dart';
 import '../../matching/screens/admin_dashboard_screen.dart';
 
@@ -121,44 +120,32 @@ class _WaitingScreenState extends State<WaitingScreen> with SingleTickerProvider
 
     if (!mounted) return;
 
-    if (status == 'active') {
-      // Once approved dynamically, fetch the majestic match result dashboard
-      showDialog(
-        context: context,
-        barrierDismissible: false,
-        builder: (context) {
-          return Dialog(
-            backgroundColor: AppTheme.backgroundIvory,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
-            child: Padding(
-              padding: const EdgeInsets.all(32),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const CircularProgressIndicator(color: AppTheme.primaryOliveGreen),
-                  const SizedBox(height: 24),
-                  Text(
-                    "تم الاعتماد!\nجاري استخراج الميثاق والتوافق...",
-                    style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                      color: AppTheme.primaryNavyBlue,
-                    ),
-                    textAlign: TextAlign.center,
-                  ),
-                ],
-              ),
-            ),
-          );
-        },
-      );
+    if (status == 'matched') {
+      // Matched by the database Hunter -> enter the exclusive Focus Room (BRD §3.3).
+      try {
+        final match = await Supabase.instance.client
+            .from('matches')
+            .select('id, match_percentage, ai_reasoning, expires_at, room_status, user1_id, user2_id')
+            .or('user1_id.eq.$activeUserId,user2_id.eq.$activeUserId')
+            .eq('room_status', 'active')
+            .maybeSingle();
 
-      if (!mounted) return;
-      Navigator.pop(context); // Dismiss loading overlay
-      
-      // Navigate directly passing the securely validated UUID context to invoke Python RAG APIs
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(
-          builder: (context) => MatchScreen(userId: activeUserId),
+        if (!mounted) return;
+        if (match != null) {
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(builder: (context) => FocusRoomScreen(matchData: match)),
+          );
+          return;
+        }
+      } catch (e) {
+        debugPrint('Focus room lookup error: $e');
+      }
+      setState(() => _isLoading = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text("تم التوافق! جاري تجهيز غرفة التركيز...", style: TextStyle(fontWeight: FontWeight.bold)),
+          backgroundColor: AppTheme.primaryOliveGreen,
         ),
       );
     } else {
@@ -221,7 +208,7 @@ class _WaitingScreenState extends State<WaitingScreen> with SingleTickerProvider
                     height: 120,
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
-                      color: AppTheme.primaryOliveGreen.withOpacity(0.2),
+                      color: AppTheme.primaryOliveGreen.withValues(alpha: 0.2),
                       border: Border.all(color: AppTheme.primaryOliveGreen, width: 4),
                     ),
                     child: const Icon(Icons.fingerprint, size: 60, color: AppTheme.backgroundIvory),
@@ -244,7 +231,7 @@ class _WaitingScreenState extends State<WaitingScreen> with SingleTickerProvider
               Text(
                 "نحن نبحث لك عن شريك روحي في $_userCity... سنرسل لك تنبيهاً فور العثور على التوافق المثالي.",
                 style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                  color: AppTheme.backgroundBeige.withOpacity(0.8),
+                  color: AppTheme.backgroundBeige.withValues(alpha: 0.8),
                   height: 1.8,
                 ),
                 textAlign: TextAlign.center,

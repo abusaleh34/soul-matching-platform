@@ -1,35 +1,33 @@
-import google.generativeai as genai
-import json
-from fastapi import HTTPException
+"""Gemini integration via the supported `google-genai` SDK.
 
-def get_working_model():
-    # Iterate through available models for this specific API key
-    for m in genai.list_models():
-        if 'generateContent' in m.supported_generation_methods:
-            return m.name
-    # Fallback if the list is somehow empty
-    return "gemini-1.5-pro"
+Replaces the deprecated `google-generativeai` package. A single fixed,
+known-good model is used; the client is created per call from the
+GEMINI_API_KEY environment variable.
+"""
+import asyncio
+import json
+import os
+
+from google import genai
+
+GEMINI_MODEL = "gemini-2.5-flash"
+
+
+def get_client() -> genai.Client:
+    return genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
+
 
 async def analyze_profile(answers: dict) -> str:
-    """
-    Analyzes user questionnaire answers and generates a deep psychological fingerprint.
-    """
-    model_name = get_working_model()
-    model = genai.GenerativeModel(model_name)
-    
-    # Properly encode the dictionary into a JSON string to preserve Arabic characters
+    """Generate a deep psychological fingerprint from questionnaire answers."""
     answers_str = json.dumps(answers, ensure_ascii=False, indent=2) if answers else "{}"
-    
     prompt = (
         "أنت خبير نفسي في العلاقات. بناءً على هذه الإجابات من استبيان توافق، "
         "اكتب تحليلاً نفسياً عميقاً من فقرتين عن شخصية هذا الفرد وأسلوبه في العلاقات. "
         f"الإجابات:\n{answers_str}"
     )
-    
-    try:
-        # Generate the sophisticated psychological profile asynchronously
-        response = await model.generate_content_async(prompt)
-        return response.text
-    except Exception as e:
-        print(f"Gemini API Error: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Gemini AI generation failed: {str(e)}")
+    client = get_client()
+    # The SDK call is synchronous; run it off the event loop.
+    response = await asyncio.to_thread(
+        lambda: client.models.generate_content(model=GEMINI_MODEL, contents=prompt)
+    )
+    return response.text

@@ -4,6 +4,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/services/api_service.dart';
+import '../../../core/utils/focus_room_format.dart';
 import 'notification_bell.dart';
 
 class FocusRoomScreen extends StatefulWidget {
@@ -16,17 +17,18 @@ class FocusRoomScreen extends StatefulWidget {
 }
 
 class _FocusRoomScreenState extends State<FocusRoomScreen> {
+  final ApiService _api = ApiService();
   Timer? _timer;
   Duration _timeLeft = Duration.zero;
   final TextEditingController _chatController = TextEditingController();
   final FocusNode _chatFocusNode = FocusNode();
   final ScrollController _scrollController = ScrollController();
-  
+
   Map<String, dynamic>? _partnerProfile;
   late Map<String, dynamic> _currentMatchData;
   StreamSubscription? _matchSubscription;
   bool _isLoadingPartner = true;
-  late Stream<List<Map<String, dynamic>>> _messagesStream;
+  late final Stream<List<Map<String, dynamic>>> _messagesStream;
   int _previousMessageCount = 0;
 
   @override
@@ -36,144 +38,84 @@ class _FocusRoomScreenState extends State<FocusRoomScreen> {
     _startTimer();
     _fetchPartnerData();
     _initMatchRealtimeEngine();
-    
-    // Extracted Stream to cleanly prevent infinite initialization build loops
+
+    // Stream created exactly once in initState (BRD §4.2 — no re-init flicker).
     _messagesStream = Supabase.instance.client
         .from('messages')
         .stream(primaryKey: ['id'])
         .eq('match_id', _currentMatchData['id'])
         .order('created_at', ascending: true);
   }
-  
+
+  bool get _isExpired => isRoomExpired(
+        parseTimestamp(_currentMatchData['expires_at'] as String?),
+        _currentMatchData['room_status'] as String?,
+        DateTime.now(),
+      );
+
   void _initMatchRealtimeEngine() {
     final matchId = widget.matchData['id'];
+    // Passive subscription: keep room status/expiry fresh. Matches are
+    // read-only for clients (RLS) — no client-side writes here.
     _matchSubscription = Supabase.instance.client
         .from('matches')
         .stream(primaryKey: ['id'])
         .eq('id', matchId)
         .listen((events) {
-           if (events.isNotEmpty) {
-             final updatedMatch = events.first;
-             
-             // Detect extension safely!
-             final oldExtCount = _currentMatchData['extension_count'] ?? 0;
-             final newExtCount = updatedMatch['extension_count'] ?? 0;
-             
-             if (newExtCount > oldExtCount && mounted) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text('تم تمديد الغرفة بنجاح لـ 24 ساعة إضافية!', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-                    backgroundColor: AppTheme.primaryOliveGreen,
-                  )
-                );
-             }
-             
-             if (mounted) {
-               setState(() {
-                 _currentMatchData = updatedMatch;
-               });
-               _startTimer(); // Recalculate ticks
-             }
-           }
-        });
+      if (events.isNotEmpty && mounted) {
+        setState(() => _currentMatchData = events.first);
+        _startTimer();
+      }
+    });
   }
 
   Future<void> _fetchPartnerData() async {
     try {
-      final currentUserId = Supabase.instance.client.auth.currentUser!.id;
       final matchId = widget.matchData['id'];
+      // Minimised partner view: server-side function returns only safe display
+      // columns (never questionnaire_answers / psychological_profile / is_admin).
+      final result = await Supabase.instance.client
+          .rpc('get_partner_profile', params: {'p_match_id': matchId});
 
-      final matchRecord = await Supabase.instance.client
-          .from('matches')
-          .select('*')
-          .eq('id', matchId)
-          .maybeSingle();
-
-      if (matchRecord == null) {
-        print('--- DEBUG: MATCH RECORD NOT FOUND IN DB! ---');
+      if (result is List && result.isNotEmpty) {
         if (mounted) {
-           setState(() {
-             _partnerProfile = {'first_name': 'شريك', 'age': 'N/A', 'height': 'N/A', 'body_type': 'N/A'};
-             _isLoadingPartner = false;
-           });
-        }
-        return;
-      }
-
-      print('--- DEBUG MATCH RECORD MAP: $matchRecord ---');
-      print('--- DEBUG CURRENT USER ID: $currentUserId ---');
-
-      final partnerId = currentUserId == matchRecord['user1_id'] 
-          ? matchRecord['user2_id'] 
-          : matchRecord['user1_id'];
-
-      if (partnerId == null) {
-        print('--- DEBUG: STILL NULL! currentUserId did not match user1_id or user2_id. ---');
-        if (mounted) {
-           setState(() {
-             _partnerProfile = {'first_name': 'شريك', 'age': 'N/A', 'height': 'N/A', 'body_type': 'N/A'};
-             _isLoadingPartner = false;
-           });
-        }
-        return;
-      }
-
-      final response = await Supabase.instance.client
-          .from('profiles')
-          .select('*')
-          .eq('id', partnerId)
-          .maybeSingle();
-
-      if (response == null) {
-        print('DEBUG: No profile found for partnerId: $partnerId');
-        if (mounted) {
-           setState(() {
-             _partnerProfile = {'first_name': 'شريك', 'age': 'N/A', 'height': 'N/A', 'body_type': 'N/A'};
-             _isLoadingPartner = false;
-           });
-        }
-        return;
-      }
-
-      if (mounted) {
-        setState(() {
-          _partnerProfile = response;
-          _isLoadingPartner = false;
-        });
-      }
-    } catch (e) {
-       print("FATAL RLS/FETCH ERROR: $e");
-       if (mounted) {
           setState(() {
-            _partnerProfile = {'first_name': 'شريك', 'age': 'N/A', 'height': 'N/A', 'body_type': 'N/A'};
+            _partnerProfile = Map<String, dynamic>.from(result.first as Map);
             _isLoadingPartner = false;
           });
-       }
+        }
+        return;
+      }
+      _setFallbackPartner();
+    } catch (e) {
+      debugPrint('Partner fetch error: $e');
+      _setFallbackPartner();
     }
+  }
+
+  void _setFallbackPartner() {
+    if (!mounted) return;
+    setState(() {
+      _partnerProfile = {'first_name': 'شريك', 'age': 'N/A', 'height': 'N/A', 'body_type': 'N/A'};
+      _isLoadingPartner = false;
+    });
   }
 
   void _startTimer() {
     _timer?.cancel();
-    final expiresAtStr = _currentMatchData['expires_at'] as String?;
-    if (expiresAtStr != null) {
-      final expiresAt = DateTime.parse(expiresAtStr).toLocal();
-      _updateTimer(expiresAt);
-      _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
-        _updateTimer(expiresAt);
-      });
-    } else {
+    final expiresAt = parseTimestamp(_currentMatchData['expires_at'] as String?);
+    if (expiresAt == null) {
       if (mounted) setState(() => _timeLeft = Duration.zero);
+      return;
     }
+    _updateTimer(expiresAt);
+    _timer = Timer.periodic(const Duration(seconds: 1), (_) => _updateTimer(expiresAt));
   }
 
   void _updateTimer(DateTime expiresAt) {
-    final now = DateTime.now();
-    if (now.isBefore(expiresAt)) {
-      if (mounted) setState(() => _timeLeft = expiresAt.difference(now));
-    } else {
-      if (mounted) setState(() => _timeLeft = Duration.zero);
-      _timer?.cancel();
-    }
+    final left = timeLeftUntil(expiresAt, DateTime.now());
+    if (mounted) setState(() => _timeLeft = left);
+    if (left == Duration.zero) _timer?.cancel();
   }
 
   @override
@@ -189,6 +131,15 @@ class _FocusRoomScreenState extends State<FocusRoomScreen> {
   Future<void> _sendMessage() async {
     final text = _chatController.text.trim();
     if (text.isEmpty) return;
+
+    if (_isExpired) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('انتهى وقت غرفة التركيز. لا يمكن إرسال رسائل جديدة.')),
+        );
+      }
+      return;
+    }
 
     final matchId = widget.matchData['id'];
     final prefs = await SharedPreferences.getInstance();
@@ -206,54 +157,17 @@ class _FocusRoomScreenState extends State<FocusRoomScreen> {
       });
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('فشل الإرسال: $e', style: const TextStyle(fontWeight: FontWeight.bold))));
-      }
-    }
-  }
-  
-  Future<void> _onExtendPressed() async {
-    final prefs = await SharedPreferences.getInstance();
-    final localId = prefs.getString('current_user_id');
-    final currentUserId = Supabase.instance.client.auth.currentUser?.id ?? localId;
-    if (currentUserId == null) return;
-    
-    final isUser1 = _currentMatchData['user1_id'] == currentUserId;
-    
-    final updateData = isUser1 
-        ? {'user1_wants_extension': true} 
-        : {'user2_wants_extension': true};
-
-    try {
-      await Supabase.instance.client
-          .from('matches')
-          .update(updateData)
-          .eq('id', _currentMatchData['id']);
-          
-      if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text("تم إرسال طلب التمديد. ننتظر موافقة الطرف الآخر.", style: TextStyle(fontWeight: FontWeight.bold)),
-            backgroundColor: AppTheme.primaryNavyBlue,
-          )
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text("فشل تقديم الطلب: $e", style: const TextStyle(fontWeight: FontWeight.bold)))
+          SnackBar(content: Text('فشل الإرسال: $e', style: const TextStyle(fontWeight: FontWeight.bold))),
         );
       }
     }
-  }
-
-  String _formatDuration(Duration d) {
-    String twoDigits(int n) => n.toString().padLeft(2, "0");
-    String twoDigitMinutes = twoDigits(d.inMinutes.remainder(60));
-    String twoDigitSeconds = twoDigits(d.inSeconds.remainder(60));
-    return "${twoDigits(d.inHours)}:$twoDigitMinutes:$twoDigitSeconds";
   }
 
   void _showCounselorAdviceBottomSheet(BuildContext context) {
+    // Create the stream once (broadcast) so sheet rebuilds don't restart it.
+    final adviceStream =
+        _api.streamCounselorAdvice(_currentMatchData['id']).asBroadcastStream();
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -268,28 +182,10 @@ class _FocusRoomScreenState extends State<FocusRoomScreen> {
           maxChildSize: 0.95,
           expand: false,
           builder: (context, scrollController) {
-            return FutureBuilder<String>(
-              future: ApiService().fetchCounselorAdvice(_currentMatchData['id']),
+            return StreamBuilder<String>(
+              stream: adviceStream,
               builder: (context, snapshot) {
-                if (snapshot.connectionState == ConnectionState.waiting) {
-                  return Center(
-                    child: Padding(
-                      padding: const EdgeInsets.all(32.0),
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: const [
-                          CircularProgressIndicator(color: Color(0xFFD4AF37)),
-                          SizedBox(height: 24),
-                          Text(
-                            "جاري تحليل أنماط التواصل وبناء التوصيات الزوجية...",
-                            style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
-                            textAlign: TextAlign.center,
-                          ),
-                        ],
-                      ),
-                    ),
-                  );
-                } else if (snapshot.hasError) {
+                if (snapshot.hasError) {
                   return Center(
                     child: Padding(
                       padding: const EdgeInsets.all(32.0),
@@ -299,7 +195,7 @@ class _FocusRoomScreenState extends State<FocusRoomScreen> {
                           const Icon(Icons.error_outline, color: Colors.redAccent, size: 48),
                           const SizedBox(height: 16),
                           Text(
-                            "تعذر الاتصال بالمستشار الذكي:\n${snapshot.error}",
+                            'تعذر الاتصال بالمستشار الذكي:\n${snapshot.error}',
                             style: const TextStyle(color: Colors.redAccent, fontSize: 16),
                             textAlign: TextAlign.center,
                           ),
@@ -307,72 +203,102 @@ class _FocusRoomScreenState extends State<FocusRoomScreen> {
                       ),
                     ),
                   );
-                } else {
-                  final advice = snapshot.data ?? 'لا توجد نصيحة حالية.';
-                  return ListView(
-                    controller: scrollController,
-                    padding: const EdgeInsets.all(24.0),
-                    children: [
-                      Center(
-                        child: Container(
-                          width: 40,
-                          height: 5,
-                          decoration: BoxDecoration(
-                            color: Colors.white24,
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 24),
-                      Row(
-                        children: const [
-                          Icon(Icons.stars, color: Color(0xFFD4AF37), size: 28),
-                          SizedBox(width: 12),
+                }
+
+                final advice = snapshot.data ?? '';
+                final isDone = snapshot.connectionState == ConnectionState.done;
+
+                // Before the first chunk arrives, show the retrieval animation.
+                if (advice.isEmpty && !isDone) {
+                  return const Center(
+                    child: Padding(
+                      padding: EdgeInsets.all(32.0),
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          CircularProgressIndicator(color: Color(0xFFD4AF37)),
+                          SizedBox(height: 24),
                           Text(
-                            "نصيحة المستشار الأسري الذكي",
-                            style: TextStyle(
-                              color: Color(0xFFD4AF37),
-                              fontSize: 20,
-                              fontWeight: FontWeight.bold,
-                            ),
+                            'جاري تحليل أنماط التواصل وبناء التوصيات الزوجية...',
+                            style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+                            textAlign: TextAlign.center,
                           ),
                         ],
                       ),
-                      const SizedBox(height: 24),
-                      Container(
-                        padding: const EdgeInsets.all(20),
-                        decoration: BoxDecoration(
-                          color: Colors.white.withOpacity(0.03),
-                          borderRadius: BorderRadius.circular(16),
-                          border: Border.all(color: Colors.white.withOpacity(0.08)),
-                        ),
-                        child: Text(
-                          advice,
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 16,
-                            height: 1.8,
-                          ),
-                          textAlign: TextAlign.right,
-                        ),
-                      ),
-                      const SizedBox(height: 32),
-                      ElevatedButton(
-                        onPressed: () => Navigator.pop(context),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: AppTheme.primaryOliveGreen,
-                          padding: const EdgeInsets.symmetric(vertical: 16),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                        ),
-                        child: const Text(
-                          "فهمت النصيحة",
-                          style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
-                        ),
-                      ),
-                      const SizedBox(height: 24),
-                    ],
+                    ),
                   );
                 }
+
+                return ListView(
+                  controller: scrollController,
+                  padding: const EdgeInsets.all(24.0),
+                  children: [
+                    Center(
+                      child: Container(
+                        width: 40,
+                        height: 5,
+                        decoration: BoxDecoration(
+                          color: Colors.white24,
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 24),
+                    const Row(
+                      children: [
+                        Icon(Icons.stars, color: Color(0xFFD4AF37), size: 28),
+                        SizedBox(width: 12),
+                        Text(
+                          'نصيحة المستشار الأسري الذكي',
+                          style: TextStyle(color: Color(0xFFD4AF37), fontSize: 20, fontWeight: FontWeight.bold),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 24),
+                    Container(
+                      padding: const EdgeInsets.all(20),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withValues(alpha: 0.03),
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
+                      ),
+                      child: Text(
+                        advice.isEmpty ? 'لا توجد نصيحة حالية.' : advice,
+                        style: const TextStyle(color: Colors.white, fontSize: 16, height: 1.8),
+                        textAlign: TextAlign.right,
+                      ),
+                    ),
+                    if (!isDone) ...[
+                      const SizedBox(height: 16),
+                      const Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          SizedBox(
+                            width: 14,
+                            height: 14,
+                            child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFFD4AF37)),
+                          ),
+                          SizedBox(width: 8),
+                          Text('يكتب المستشار...',
+                              style: TextStyle(color: Colors.white54, fontSize: 12)),
+                        ],
+                      ),
+                    ],
+                    const SizedBox(height: 32),
+                    ElevatedButton(
+                      onPressed: isDone ? () => Navigator.pop(context) : null,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppTheme.primaryOliveGreen,
+                        disabledBackgroundColor: Colors.grey.withValues(alpha: 0.3),
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      ),
+                      child: const Text('فهمت النصيحة',
+                          style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+                    ),
+                    const SizedBox(height: 24),
+                  ],
+                );
               },
             );
           },
@@ -385,62 +311,44 @@ class _FocusRoomScreenState extends State<FocusRoomScreen> {
   Widget build(BuildContext context) {
     final percentage = _currentMatchData['match_percentage'] ?? 0;
     final reasoning = _currentMatchData['ai_reasoning'] ?? 'لم يتم استخراج سبب';
-    final int extensionCount = _currentMatchData['extension_count'] ?? 0;
-    
-    final prefsStringId = _currentMatchData['user1_id'] ?? ''; // Safe local proxy map
-    final currentUserId = Supabase.instance.client.auth.currentUser?.id ?? prefsStringId; 
-    
-    // We already know safely routing to this screen guarantees we are either user1 or user2 reliably 
-    final isUser1 = _currentMatchData['user1_id'] == currentUserId;
-    final bool iHaveRequested = isUser1 
-        ? (_currentMatchData['user1_wants_extension'] ?? false)
-        : (_currentMatchData['user2_wants_extension'] ?? false);
-    
-    final partnerIdentity = _isLoadingPartner 
-       ? "جاري التحميل..." 
-       : (_partnerProfile != null ? "${_partnerProfile!['first_name'] ?? 'شريك'}" : "شريك مجهول");
+    final prefsStringId = _currentMatchData['user1_id'] ?? '';
+    final currentUserId = Supabase.instance.client.auth.currentUser?.id ?? prefsStringId;
+    final expired = _isExpired;
 
     return Scaffold(
       backgroundColor: AppTheme.primaryNavyBlue,
       appBar: AppBar(
         title: Text(
-            _isLoadingPartner ? "يتم الاتصال..." : (_partnerProfile != null ? "شريكك: ${_partnerProfile!['first_name']?.toString() ?? 'مجهول'}" : "تم العثور على توافق روحي"), 
-            style: const TextStyle(fontWeight: FontWeight.bold)
+          _isLoadingPartner
+              ? 'يتم الاتصال...'
+              : (_partnerProfile != null
+                  ? 'شريكك: ${_partnerProfile!['first_name']?.toString() ?? 'مجهول'}'
+                  : 'تم العثور على توافق روحي'),
+          style: const TextStyle(fontWeight: FontWeight.bold),
         ),
         centerTitle: true,
         backgroundColor: Colors.transparent,
         elevation: 0,
         foregroundColor: AppTheme.backgroundIvory,
-        actions: const [
-          NotificationBell(),
-        ],
+        actions: const [NotificationBell()],
       ),
       body: SafeArea(
         child: Column(
           children: [
-            // Max Extension Warning Horizon
-            if (extensionCount >= 2)
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.symmetric(vertical: 8),
-                color: Colors.redAccent.withOpacity(0.2),
-                child: const Text("هذا هو اليوم الأخير. حان وقت القرار.", textAlign: TextAlign.center, style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-              ),
-              
-            // 1. Timer Header
+            // Timer header
             Container(
               width: double.infinity,
               padding: const EdgeInsets.symmetric(vertical: 16),
-              color: AppTheme.primaryOliveGreen.withOpacity(0.2),
+              color: (expired ? Colors.redAccent : AppTheme.primaryOliveGreen).withValues(alpha: 0.2),
               child: Column(
                 children: [
-                  const Text(
-                    "الوقت المتبقي للتعارف المبدئي",
-                    style: TextStyle(color: AppTheme.backgroundBeige, fontSize: 16),
+                  Text(
+                    expired ? 'انتهى وقت التعارف المبدئي' : 'الوقت المتبقي للتعارف المبدئي',
+                    style: const TextStyle(color: AppTheme.backgroundBeige, fontSize: 16),
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    _formatDuration(_timeLeft),
+                    expired ? '00:00:00' : formatCountdown(_timeLeft),
                     style: const TextStyle(
                       color: Colors.white,
                       fontSize: 36,
@@ -448,446 +356,361 @@ class _FocusRoomScreenState extends State<FocusRoomScreen> {
                       letterSpacing: 2,
                     ),
                   ),
-                  const SizedBox(height: 12),
-                  // Sleek Extension Button logic injected right above the barrier ONLY under 5 minutes
-                  if (extensionCount < 2 && !iHaveRequested && _timeLeft.inMinutes <= 5)
-                    TextButton.icon(
-                      onPressed: _onExtendPressed,
-                      icon: const Icon(Icons.more_time, color: Colors.white),
-                      label: const Text("طلب تمديد المحادثة", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-                      style: TextButton.styleFrom(
-                        backgroundColor: Colors.white.withOpacity(0.1),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-                      ),
-                    )
-                  else if (extensionCount < 2 && iHaveRequested)
-                    const Text("طلب التمديد مُرسل... ننتظر الموافقة", style: TextStyle(color: Colors.white54, fontSize: 12)),
                 ],
               ),
             ),
 
-            // 2. Scrollable Body
             Expanded(
-              child: _isLoadingPartner 
-                ? const Center(child: CircularProgressIndicator(color: AppTheme.primaryOliveGreen))
-                : CustomScrollView(
-                controller: _scrollController,
-                physics: const BouncingScrollPhysics(),
-                slivers: [
-                  SliverToBoxAdapter(
-                    child: Padding(
-                      padding: const EdgeInsets.all(24.0),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          Center(
-                            child: Container(
-                              width: 140,
-                              height: 140,
-                              decoration: BoxDecoration(
-                                shape: BoxShape.circle,
-                                border: Border.all(color: AppTheme.primaryOliveGreen, width: 4),
-                              ),
-                              child: Center(
-                                child: Column(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: [
-                                    Text(
-                                      "$percentage%",
-                                      style: const TextStyle(
-                                        color: Colors.white,
-                                        fontSize: 40,
-                                        fontWeight: FontWeight.bold,
-                                      ),
-                                    ),
-                                    const Text(
-                                      "نسبة التوافق",
-                                      style: TextStyle(
-                                        color: AppTheme.primaryOliveGreen,
-                                        fontSize: 14,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ),
-                          ),
-                          const SizedBox(height: 16),
-                          
-                          Center(
-                            child: Text(
-                              _isLoadingPartner 
-                                 ? "جاري التحميل..." 
-                                 : (_partnerProfile != null ? "تم ربط التوافق الروحي بنجاح" : "شريك مجهول"),
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 18,
-                                fontWeight: FontWeight.bold,
-                              ),
-                              textAlign: TextAlign.center,
-                            ),
-                          ),
-                          const SizedBox(height: 16),
-                          if (_partnerProfile != null)
-                             Center(
-                               child: ElevatedButton.icon(
-                                  icon: const Icon(Icons.person, color: AppTheme.primaryNavyBlue),
-                                  label: const Text("📄 عرض الملف الشخصي الكامل", style: TextStyle(color: AppTheme.primaryNavyBlue, fontWeight: FontWeight.bold, fontSize: 16)),
-                                  style: ElevatedButton.styleFrom(
-                                    backgroundColor: AppTheme.backgroundIvory,
-                                    padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                                  ),
-                                  onPressed: () {
-                                    showModalBottomSheet(
-                                      context: context,
-                                      isScrollControlled: true,
-                                      backgroundColor: AppTheme.primaryNavyBlue,
-                                      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
-                                      builder: (context) => Padding(
-                                        padding: const EdgeInsets.only(left: 24.0, right: 24.0, top: 32.0, bottom: 48.0),
-                                        child: Column(
-                                          mainAxisSize: MainAxisSize.min,
-                                          crossAxisAlignment: CrossAxisAlignment.start,
-                                          children: [
-                                            Center(child: Text("ملف ${_partnerProfile!['first_name']?.toString() ?? 'الشريك'} الكامل", style: const TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold))),
-                                            const SizedBox(height: 32),
-                                            
-                                            const Text("المعلومات الأساسية", style: TextStyle(color: AppTheme.primaryOliveGreen, fontSize: 18, fontWeight: FontWeight.bold)),
-                                            const SizedBox(height: 16),
-                                            Wrap(
-                                              spacing: 8,
-                                              runSpacing: 8,
-                                              children: [
-                                                Chip(label: Text("الحالة الاجتماعية: ${_partnerProfile!['marital_status']?.toString() ?? 'غير محدد'}", style: const TextStyle(color: Colors.black, fontWeight: FontWeight.bold)), backgroundColor: Colors.white, side: BorderSide.none),
-                                                Chip(label: Text("العمر: ${_partnerProfile!['age']?.toString() ?? 'غير محدد'} سنة", style: const TextStyle(color: Colors.black, fontWeight: FontWeight.bold)), backgroundColor: Colors.white, side: BorderSide.none),
-                                                Chip(label: Text("المدينة: ${_partnerProfile!['city']?.toString() ?? 'غير محدد'}", style: const TextStyle(color: Colors.black, fontWeight: FontWeight.bold)), backgroundColor: Colors.white, side: BorderSide.none),
-                                              ],
-                                            ),
-                                            
-                                            const SizedBox(height: 32),
-                                            
-                                            const Text("المواصفات الشكلية", style: TextStyle(color: AppTheme.primaryOliveGreen, fontSize: 18, fontWeight: FontWeight.bold)),
-                                            const SizedBox(height: 16),
-                                            Wrap(
-                                              spacing: 8,
-                                              runSpacing: 8,
-                                              children: [
-                                                Chip(label: Text("الطول: ${_partnerProfile!['height']?.toString() ?? 'غير محدد'} سم", style: const TextStyle(color: Colors.black, fontWeight: FontWeight.bold)), backgroundColor: Colors.white, side: BorderSide.none),
-                                                Chip(label: Text("بنية الجسم: ${_partnerProfile!['body_type']?.toString() ?? 'غير محدد'}", style: const TextStyle(color: Colors.black, fontWeight: FontWeight.bold)), backgroundColor: Colors.white, side: BorderSide.none),
-                                              ],
-                                            ),
-                                          ],
-                                        ),
-                                      ),
-                                    );
-                                  }
-                               )
-                             ),
-                          const SizedBox(height: 32),
-
-                          Container(
-                            padding: const EdgeInsets.all(24),
-                            decoration: BoxDecoration(
-                              color: Colors.white.withOpacity(0.03),
-                              borderRadius: BorderRadius.circular(16),
-                              border: Border.all(color: Colors.white.withOpacity(0.1)),
-                              boxShadow: [
-                                BoxShadow(
-                                  color: Colors.black.withOpacity(0.2),
-                                  blurRadius: 10,
-                                  offset: const Offset(0, 5),
-                                )
-                              ],
-                            ),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Row(
-                                  children: const [
-                                    Icon(Icons.psychology, color: AppTheme.primaryOliveGreen),
-                                    SizedBox(width: 8),
-                                    Text(
-                                      "بصيرة التوافق",
-                                      style: TextStyle(
-                                        color: AppTheme.primaryOliveGreen,
-                                        fontSize: 18,
-                                        fontWeight: FontWeight.bold,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                                const SizedBox(height: 16),
-                                Text(
-                                  reasoning,
-                                  style: TextStyle(
-                                    color: Colors.white.withOpacity(0.9),
-                                    fontSize: 16,
-                                    height: 1.8,
-                                  ),
-                                  textAlign: TextAlign.right,
-                                ),
-                              ],
-                            ),
-                          ),
-                          const SizedBox(height: 32),
-
-                          // Premium Card: المستشار الذكي ما بعد الزواج
-                          Container(
-                            padding: const EdgeInsets.all(24),
-                            decoration: BoxDecoration(
-                              gradient: LinearGradient(
-                                colors: [
-                                  const Color(0xFFD4AF37).withOpacity(0.15),
-                                  Colors.white.withOpacity(0.02),
-                                ],
-                                begin: Alignment.topLeft,
-                                end: Alignment.bottomRight,
-                              ),
-                              borderRadius: BorderRadius.circular(16),
-                              border: Border.all(color: const Color(0xFFD4AF37).withOpacity(0.4), width: 1.5),
-                              boxShadow: [
-                                BoxShadow(
-                                  color: const Color(0xFFD4AF37).withOpacity(0.05),
-                                  blurRadius: 12,
-                                  offset: const Offset(0, 4),
-                                )
-                              ],
-                            ),
+              child: _isLoadingPartner
+                  ? const Center(child: CircularProgressIndicator(color: AppTheme.primaryOliveGreen))
+                  : CustomScrollView(
+                      controller: _scrollController,
+                      physics: const BouncingScrollPhysics(),
+                      slivers: [
+                        SliverToBoxAdapter(
+                          child: Padding(
+                            padding: const EdgeInsets.all(24.0),
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.stretch,
                               children: [
-                                Row(
-                                  children: const [
-                                    Icon(Icons.stars, color: Color(0xFFD4AF37), size: 28),
-                                    SizedBox(width: 12),
-                                    Text(
-                                      "المستشار الذكي ما بعد الزواج",
-                                      style: TextStyle(
-                                        color: Color(0xFFD4AF37),
-                                        fontSize: 18,
-                                        fontWeight: FontWeight.bold,
+                                Center(
+                                  child: Container(
+                                    width: 140,
+                                    height: 140,
+                                    decoration: BoxDecoration(
+                                      shape: BoxShape.circle,
+                                      border: Border.all(color: AppTheme.primaryOliveGreen, width: 4),
+                                    ),
+                                    child: Center(
+                                      child: Column(
+                                        mainAxisAlignment: MainAxisAlignment.center,
+                                        children: [
+                                          Text('$percentage%',
+                                              style: const TextStyle(color: Colors.white, fontSize: 40, fontWeight: FontWeight.bold)),
+                                          const Text('نسبة التوافق',
+                                              style: TextStyle(color: AppTheme.primaryOliveGreen, fontSize: 14)),
+                                        ],
                                       ),
                                     ),
-                                  ],
-                                ),
-                                const SizedBox(height: 12),
-                                Text(
-                                  "استخرج نصيحة تواصل ذهبية مخصصة من الذكاء الاصطناعي بناءً على تحليل ملفاتكما النفسية مجتمعة.",
-                                  style: TextStyle(
-                                    color: AppTheme.backgroundBeige.withOpacity(0.8),
-                                    fontSize: 14,
-                                    height: 1.6,
                                   ),
-                                  textAlign: TextAlign.right,
                                 ),
-                                const SizedBox(height: 20),
-                                ElevatedButton.icon(
-                                  icon: const Icon(Icons.psychology, color: AppTheme.primaryNavyBlue),
-                                  label: const Text(
-                                    "الحصول على النصيحة الذكية",
-                                    style: TextStyle(
-                                      color: AppTheme.primaryNavyBlue,
-                                      fontWeight: FontWeight.bold,
-                                      fontSize: 16,
-                                    ),
-                                  ),
-                                  style: ElevatedButton.styleFrom(
-                                    backgroundColor: const Color(0xFFD4AF37),
-                                    padding: const EdgeInsets.symmetric(vertical: 14),
-                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                                  ),
-                                  onPressed: () => _showCounselorAdviceBottomSheet(context),
+                                const SizedBox(height: 16),
+                                const Center(
+                                  child: Text('تم ربط التوافق الروحي بنجاح',
+                                      style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
+                                      textAlign: TextAlign.center),
                                 ),
+                                const SizedBox(height: 16),
+                                if (_partnerProfile != null) _buildPartnerProfileButton(context),
+                                const SizedBox(height: 32),
+                                _buildReasoningCard(reasoning),
+                                const SizedBox(height: 32),
+                                _buildCounselorCard(expired),
+                                const SizedBox(height: 32),
                               ],
                             ),
                           ),
-                          const SizedBox(height: 32),
-                        ],
-                      ),
+                        ),
+                        _buildMessagesSliver(currentUserId),
+                      ],
                     ),
-                  ),
-                  
-                  StreamBuilder<List<Map<String, dynamic>>>(
-                      stream: _messagesStream,
-                      builder: (context, snapshot) {
-                        if (snapshot.connectionState == ConnectionState.waiting && !snapshot.hasData) {
-                          return const SliverToBoxAdapter(
-                            child: Center(child: CircularProgressIndicator(color: AppTheme.primaryOliveGreen)),
-                          );
-                        }
-                        
-                        final messages = snapshot.data ?? [];
-                        
-                        if (messages.length > _previousMessageCount) {
-                          _previousMessageCount = messages.length;
-                          WidgetsBinding.instance.addPostFrameCallback((_) {
-                            // Suppress notifications since we are active in the chat room
-                            ApiService().markAllNotificationsAsRead();
+            ),
 
-                            if (_scrollController.hasClients) {
-                              _scrollController.animateTo(
-                                _scrollController.position.maxScrollExtent,
-                                duration: const Duration(milliseconds: 300),
-                                curve: Curves.easeOut,
-                              );
-                            }
-                          });
-                        }
+            _buildComposer(expired),
+          ],
+        ),
+      ),
+    );
+  }
 
-                        if (messages.isEmpty) {
-                          return SliverToBoxAdapter(
-                            child: Padding(
-                              padding: const EdgeInsets.all(32.0),
-                              child: Center(
-                                child: Text(
-                                  "اسأل بصدق، الحوار مسجل ومؤقت...",
-                                  style: TextStyle(color: Colors.white.withOpacity(0.5), fontSize: 14),
-                                ),
-                              ),
-                            ),
-                          );
-                        }
-                        
-                        return SliverPadding(
-                          padding: const EdgeInsets.only(bottom: 24),
-                          sliver: SliverList(
-                            delegate: SliverChildBuilderDelegate(
-                              (context, index) {
-                                final msg = messages[index];
-                                final isMe = msg['sender_id'] == currentUserId;
-                                
-                                final createdAtStr = msg['created_at'] as String?;
-                                String timeStr = '';
-                                if (createdAtStr != null) {
-                                  try {
-                                    final dateTime = DateTime.parse(createdAtStr).toLocal();
-                                    final hour = dateTime.hour;
-                                    final minute = dateTime.minute.toString().padLeft(2, '0');
-                                    final period = hour >= 12 ? 'م' : 'ص';
-                                    final formattedHour = hour > 12 ? hour - 12 : (hour == 0 ? 12 : hour);
-                                    timeStr = '$formattedHour:$minute $period';
-                                  } catch (_) {}
-                                }
-                                
-                                return Align(
-                                  alignment: isMe ? Alignment.centerLeft : Alignment.centerRight,
-                                  child: Padding(
-                                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-                                    child: Column(
-                                      crossAxisAlignment: isMe ? CrossAxisAlignment.start : CrossAxisAlignment.end,
-                                      children: [
-                                        Container(
-                                          constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.75),
-                                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                                          decoration: BoxDecoration(
-                                            color: isMe ? AppTheme.primaryOliveGreen : Colors.white.withOpacity(0.1),
-                                            borderRadius: BorderRadius.only(
-                                              topLeft: const Radius.circular(16),
-                                              topRight: const Radius.circular(16),
-                                              bottomLeft: isMe ? const Radius.circular(0) : const Radius.circular(16),
-                                              bottomRight: isMe ? const Radius.circular(16) : const Radius.circular(0),
-                                            ),
-                                          ),
-                                          child: Text(
-                                            msg['content'] ?? '',
-                                            style: TextStyle(
-                                              color: isMe ? Colors.white : Colors.white.withOpacity(0.9), 
-                                              fontSize: 16,
-                                              height: 1.4,
-                                            ),
-                                          ),
-                                        ),
-                                        const SizedBox(height: 4),
-                                        Padding(
-                                          padding: const EdgeInsets.symmetric(horizontal: 8.0),
-                                          child: Row(
-                                            mainAxisSize: MainAxisSize.min,
-                                            children: [
-                                              Text(
-                                                timeStr,
-                                                style: TextStyle(color: Colors.white.withOpacity(0.4), fontSize: 10),
-                                              ),
-                                              if (isMe) ...[
-                                                const SizedBox(width: 4),
-                                                Icon(
-                                                  Icons.done_all,
-                                                  size: 14,
-                                                  color: (msg['is_read'] ?? false)
-                                                      ? AppTheme.primaryOliveGreen
-                                                      : Colors.white.withOpacity(0.4),
-                                                ),
-                                              ]
-                                            ],
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                );
-                              },
-                              childCount: messages.length,
-                            ),
-                          ),
-                        );
-                      },
-                    ),
+  Widget _buildPartnerProfileButton(BuildContext context) {
+    return Center(
+      child: ElevatedButton.icon(
+        icon: const Icon(Icons.person, color: AppTheme.primaryNavyBlue),
+        label: const Text('📄 عرض الملف الشخصي الكامل',
+            style: TextStyle(color: AppTheme.primaryNavyBlue, fontWeight: FontWeight.bold, fontSize: 16)),
+        style: ElevatedButton.styleFrom(
+          backgroundColor: AppTheme.backgroundIvory,
+          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        ),
+        onPressed: () {
+          showModalBottomSheet(
+            context: context,
+            isScrollControlled: true,
+            backgroundColor: AppTheme.primaryNavyBlue,
+            shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
+            builder: (context) => Padding(
+              padding: const EdgeInsets.only(left: 24.0, right: 24.0, top: 32.0, bottom: 48.0),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Center(
+                      child: Text('ملف ${_partnerProfile!['first_name']?.toString() ?? 'الشريك'} الكامل',
+                          style: const TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold))),
+                  const SizedBox(height: 32),
+                  const Text('المعلومات الأساسية',
+                      style: TextStyle(color: AppTheme.primaryOliveGreen, fontSize: 18, fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 16),
+                  Wrap(spacing: 8, runSpacing: 8, children: [
+                    _chip('الحالة الاجتماعية: ${_partnerProfile!['marital_status']?.toString() ?? 'غير محدد'}'),
+                    _chip('العمر: ${_partnerProfile!['age']?.toString() ?? 'غير محدد'} سنة'),
+                    _chip('المدينة: ${_partnerProfile!['city']?.toString() ?? 'غير محدد'}'),
+                  ]),
+                  const SizedBox(height: 32),
+                  const Text('المواصفات الشكلية',
+                      style: TextStyle(color: AppTheme.primaryOliveGreen, fontSize: 18, fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 16),
+                  Wrap(spacing: 8, runSpacing: 8, children: [
+                    _chip('الطول: ${_partnerProfile!['height']?.toString() ?? 'غير محدد'} سم'),
+                    _chip('بنية الجسم: ${_partnerProfile!['body_type']?.toString() ?? 'غير محدد'}'),
+                  ]),
                 ],
               ),
             ),
+          );
+        },
+      ),
+    );
+  }
 
+  Widget _chip(String label) => Chip(
+        label: Text(label, style: const TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
+        backgroundColor: Colors.white,
+        side: BorderSide.none,
+      );
+
+  Widget _buildReasoningCard(Object reasoning) {
+    return Container(
+      padding: const EdgeInsets.all(24),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.03),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.1)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Row(children: [
+            Icon(Icons.psychology, color: AppTheme.primaryOliveGreen),
+            SizedBox(width: 8),
+            Text('بصيرة التوافق',
+                style: TextStyle(color: AppTheme.primaryOliveGreen, fontSize: 18, fontWeight: FontWeight.bold)),
+          ]),
+          const SizedBox(height: 16),
+          Text('$reasoning',
+              style: TextStyle(color: Colors.white.withValues(alpha: 0.9), fontSize: 16, height: 1.8),
+              textAlign: TextAlign.right),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCounselorCard(bool expired) {
+    return Container(
+      padding: const EdgeInsets.all(24),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [const Color(0xFFD4AF37).withValues(alpha: 0.15), Colors.white.withValues(alpha: 0.02)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFD4AF37).withValues(alpha: 0.4), width: 1.5),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const Row(children: [
+            Icon(Icons.stars, color: Color(0xFFD4AF37), size: 28),
+            SizedBox(width: 12),
+            Text('المستشار الذكي ما بعد الزواج',
+                style: TextStyle(color: Color(0xFFD4AF37), fontSize: 18, fontWeight: FontWeight.bold)),
+          ]),
+          const SizedBox(height: 12),
+          Text(
+            expired
+                ? 'انتهت صلاحية الغرفة، لم يعد بإمكانك طلب نصيحة المستشار.'
+                : 'استخرج نصيحة تواصل ذهبية مخصصة من الذكاء الاصطناعي بناءً على تحليل ملفاتكما النفسية مجتمعة.',
+            style: TextStyle(color: AppTheme.backgroundBeige.withValues(alpha: 0.8), fontSize: 14, height: 1.6),
+            textAlign: TextAlign.right,
+          ),
+          const SizedBox(height: 20),
+          ElevatedButton.icon(
+            icon: const Icon(Icons.psychology, color: AppTheme.primaryNavyBlue),
+            label: const Text('الحصول على النصيحة الذكية',
+                style: TextStyle(color: AppTheme.primaryNavyBlue, fontWeight: FontWeight.bold, fontSize: 16)),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFFD4AF37),
+              disabledBackgroundColor: Colors.grey.withValues(alpha: 0.3),
+              padding: const EdgeInsets.symmetric(vertical: 14),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            ),
+            onPressed: expired ? null : () => _showCounselorAdviceBottomSheet(context),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMessagesSliver(Object currentUserId) {
+    return StreamBuilder<List<Map<String, dynamic>>>(
+      stream: _messagesStream,
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting && !snapshot.hasData) {
+          return const SliverToBoxAdapter(
+            child: Center(child: CircularProgressIndicator(color: AppTheme.primaryOliveGreen)),
+          );
+        }
+
+        final messages = snapshot.data ?? [];
+
+        if (messages.length > _previousMessageCount) {
+          _previousMessageCount = messages.length;
+          final matchId = _currentMatchData['id'] as String;
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            // Active-chat suppression scoped to THIS match + read receipts.
+            _api.markMatchNotificationsAsRead(matchId);
+            _api.markMessagesAsRead(matchId);
+            if (_scrollController.hasClients) {
+              _scrollController.animateTo(
+                _scrollController.position.maxScrollExtent,
+                duration: const Duration(milliseconds: 300),
+                curve: Curves.easeOut,
+              );
+            }
+          });
+        }
+
+        if (messages.isEmpty) {
+          return SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.all(32.0),
+              child: Center(
+                child: Text('اسأل بصدق، الحوار مسجل ومؤقت...',
+                    style: TextStyle(color: Colors.white.withValues(alpha: 0.5), fontSize: 14)),
+              ),
+            ),
+          );
+        }
+
+        return SliverPadding(
+          padding: const EdgeInsets.only(bottom: 24),
+          sliver: SliverList(
+            delegate: SliverChildBuilderDelegate(
+              (context, index) => _buildBubble(messages[index], currentUserId),
+              childCount: messages.length,
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildBubble(Map<String, dynamic> msg, Object currentUserId) {
+    final isMe = msg['sender_id'] == currentUserId;
+    final createdAt = parseTimestamp(msg['created_at'] as String?);
+    final timeStr = createdAt != null ? formatArabicTime(createdAt) : '';
+
+    return Align(
+      alignment: isMe ? Alignment.centerLeft : Alignment.centerRight,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+        child: Column(
+          crossAxisAlignment: isMe ? CrossAxisAlignment.start : CrossAxisAlignment.end,
+          children: [
             Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: AppTheme.primaryNavyBlue,
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withOpacity(0.3),
-                      blurRadius: 8,
-                      offset: const Offset(0, -2),
-                    )
-                  ],
-                ),
-                child: SafeArea(
-                  top: false,
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: TextField(
-                          controller: _chatController,
-                          focusNode: _chatFocusNode,
-                          textInputAction: TextInputAction.send,
-                          onSubmitted: (text) {
-                            _sendMessage();
-                            _chatFocusNode.requestFocus();
-                          },
-                          style: const TextStyle(color: Colors.white),
-                          decoration: InputDecoration(
-                            hintText: "اكتب رسالة بصدق...",
-                            hintStyle: TextStyle(color: Colors.white.withOpacity(0.4)),
-                            filled: true,
-                            fillColor: Colors.white.withOpacity(0.1),
-                            contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-                            border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(24),
-                              borderSide: BorderSide.none,
-                            ),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      CircleAvatar(
-                        backgroundColor: AppTheme.primaryOliveGreen,
-                        radius: 24,
-                        child: IconButton(
-                          icon: const Icon(Icons.send, color: Colors.white, size: 20),
-                          onPressed: _sendMessage,
-                        ),
-                      )
-                    ],
-                  ),
+              constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.75),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              decoration: BoxDecoration(
+                color: isMe ? AppTheme.primaryOliveGreen : Colors.white.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.only(
+                  topLeft: const Radius.circular(16),
+                  topRight: const Radius.circular(16),
+                  bottomLeft: isMe ? Radius.zero : const Radius.circular(16),
+                  bottomRight: isMe ? const Radius.circular(16) : Radius.zero,
                 ),
               ),
+              child: Text(msg['content'] ?? '',
+                  style: TextStyle(color: isMe ? Colors.white : Colors.white.withValues(alpha: 0.9), fontSize: 16, height: 1.4)),
+            ),
+            const SizedBox(height: 4),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 8.0),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(timeStr, style: TextStyle(color: Colors.white.withValues(alpha: 0.4), fontSize: 10)),
+                  if (isMe) ...[
+                    const SizedBox(width: 4),
+                    Icon(Icons.done_all,
+                        size: 14,
+                        color: (msg['is_read'] ?? false)
+                            ? AppTheme.primaryOliveGreen
+                            : Colors.white.withValues(alpha: 0.4)),
+                  ],
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildComposer(bool expired) {
+    if (expired) {
+      return Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(20),
+        color: AppTheme.primaryNavyBlue,
+        child: SafeArea(
+          top: false,
+          child: Text(
+            'انتهى وقت غرفة التركيز. المحادثة مغلقة الآن.',
+            textAlign: TextAlign.center,
+            style: TextStyle(color: Colors.white.withValues(alpha: 0.7), fontWeight: FontWeight.bold),
+          ),
+        ),
+      );
+    }
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: const BoxDecoration(color: AppTheme.primaryNavyBlue),
+      child: SafeArea(
+        top: false,
+        child: Row(
+          children: [
+            Expanded(
+              child: TextField(
+                controller: _chatController,
+                focusNode: _chatFocusNode,
+                textInputAction: TextInputAction.send,
+                onSubmitted: (_) {
+                  _sendMessage();
+                  _chatFocusNode.requestFocus();
+                },
+                style: const TextStyle(color: Colors.white),
+                decoration: InputDecoration(
+                  hintText: 'اكتب رسالة بصدق...',
+                  hintStyle: TextStyle(color: Colors.white.withValues(alpha: 0.4)),
+                  filled: true,
+                  fillColor: Colors.white.withValues(alpha: 0.1),
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(24), borderSide: BorderSide.none),
+                ),
+              ),
+            ),
+            const SizedBox(width: 12),
+            CircleAvatar(
+              backgroundColor: AppTheme.primaryOliveGreen,
+              radius: 24,
+              child: IconButton(
+                icon: const Icon(Icons.send, color: Colors.white, size: 20),
+                onPressed: _sendMessage,
+              ),
+            ),
           ],
         ),
       ),
