@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/theme/app_theme.dart';
-import 'profile_setup_screen.dart';
 import '../../../main.dart';
 
 class WelcomeScreen extends StatefulWidget {
@@ -115,13 +114,13 @@ class _WelcomeScreenState extends State<WelcomeScreen> with TickerProviderStateM
             Container(
               padding: const EdgeInsets.all(32),
               decoration: BoxDecoration(
-                color: AppTheme.primaryOliveGreen.withOpacity(0.05),
+                color: AppTheme.primaryOliveGreen.withValues(alpha: 0.05),
                 shape: BoxShape.circle,
               ),
               child: Stack(
                 alignment: Alignment.center,
                 children: [
-                   Icon(Icons.fingerprint_rounded, size: 90, color: AppTheme.primaryOliveGreen.withOpacity(0.15)),
+                   Icon(Icons.fingerprint_rounded, size: 90, color: AppTheme.primaryOliveGreen.withValues(alpha: 0.15)),
                    const Icon(Icons.psychology_rounded, size: 45, color: AppTheme.primaryOliveGreen),
                 ],
               ),
@@ -140,7 +139,7 @@ class _WelcomeScreenState extends State<WelcomeScreen> with TickerProviderStateM
             Text(
               "أول منصة زواج تعتمد على الذكاء الاصطناعي لتحليل التوافق الفكري والروحي، بعيداً عن السطحية والتشتت.",
               style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                color: AppTheme.primaryNavyBlue.withOpacity(0.7),
+                color: AppTheme.primaryNavyBlue.withValues(alpha: 0.7),
                 height: 1.6,
               ),
               textAlign: TextAlign.center,
@@ -213,7 +212,7 @@ class _WelcomeScreenState extends State<WelcomeScreen> with TickerProviderStateM
           borderRadius: BorderRadius.circular(20),
           boxShadow: [
             BoxShadow(
-              color: AppTheme.primaryNavyBlue.withOpacity(0.04),
+              color: AppTheme.primaryNavyBlue.withValues(alpha: 0.04),
               blurRadius: 20,
               offset: const Offset(0, 8),
             ),
@@ -226,7 +225,7 @@ class _WelcomeScreenState extends State<WelcomeScreen> with TickerProviderStateM
             Container(
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
-                color: AppTheme.backgroundBeige.withOpacity(0.3),
+                color: AppTheme.backgroundBeige.withValues(alpha: 0.3),
                 borderRadius: BorderRadius.circular(12),
               ),
               child: Icon(icon, color: AppTheme.primaryOliveGreen, size: 28),
@@ -249,7 +248,7 @@ class _WelcomeScreenState extends State<WelcomeScreen> with TickerProviderStateM
                   Text(
                     body,
                     style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                      color: AppTheme.primaryNavyBlue.withOpacity(0.7),
+                      color: AppTheme.primaryNavyBlue.withValues(alpha: 0.7),
                       height: 1.6,
                     ),
                     textDirection: TextDirection.rtl,
@@ -266,12 +265,12 @@ class _WelcomeScreenState extends State<WelcomeScreen> with TickerProviderStateM
   Widget _buildFooterSection(BuildContext context) {
     return Column(
       children: [
-        Divider(color: AppTheme.primaryNavyBlue.withOpacity(0.08)),
+        Divider(color: AppTheme.primaryNavyBlue.withValues(alpha: 0.08)),
         const SizedBox(height: 48),
         Text(
           "الزواج قرار واعٍ... استثمر دقائق في الإجابة بتجرد، واترك لنا مهمة البحث في بحر الأرواح.",
           style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-            color: AppTheme.primaryNavyBlue.withOpacity(0.8),
+            color: AppTheme.primaryNavyBlue.withValues(alpha: 0.8),
             height: 1.6,
             fontStyle: FontStyle.italic,
           ),

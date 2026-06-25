@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/services/api_service.dart';
+import 'notification_bell.dart';
 
 class AdminDashboardScreen extends StatefulWidget {
   const AdminDashboardScreen({super.key});
@@ -73,11 +74,11 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
     String? subtitle,
   }) {
     return Card(
-      color: Colors.white.withOpacity(0.04),
+      color: Colors.white.withValues(alpha: 0.04),
       elevation: 4,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(20),
-        side: BorderSide(color: Colors.white.withOpacity(0.1)),
+        side: BorderSide(color: Colors.white.withValues(alpha: 0.1)),
       ),
       child: Padding(
         padding: const EdgeInsets.all(24.0),
@@ -86,7 +87,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
             Container(
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
-                color: color.withOpacity(0.15),
+                color: color.withValues(alpha: 0.15),
                 shape: BoxShape.circle,
               ),
               child: Icon(icon, color: color, size: 32),
@@ -99,7 +100,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                   Text(
                     title,
                     style: TextStyle(
-                      color: AppTheme.backgroundBeige.withOpacity(0.8),
+                      color: AppTheme.backgroundBeige.withValues(alpha: 0.8),
                       fontSize: 16,
                       fontWeight: FontWeight.bold,
                     ),
@@ -118,7 +119,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                     Text(
                       subtitle,
                       style: TextStyle(
-                        color: Colors.white.withOpacity(0.5),
+                        color: Colors.white.withValues(alpha: 0.5),
                         fontSize: 12,
                       ),
                     ),
@@ -147,6 +148,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
             icon: const Icon(Icons.refresh),
             onPressed: _refreshStats,
           ),
+          const NotificationBell(),
         ],
       ),
       body: SafeArea(
@@ -189,6 +191,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                   final int activeUsers = data['active_users'] ?? 0;
                   final int matchedUsers = data['matched_users'] ?? 0;
                   final int totalMatches = data['total_matches'] ?? 0;
+                  final int activeRooms = data['active_rooms'] ?? totalMatches;
                   final double avgCompat = (data['average_compatibility'] as num? ?? 0.0).toDouble();
 
                   return SingleChildScrollView(
@@ -213,10 +216,10 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                         const SizedBox(height: 12),
                         _buildStatCard(
                           title: 'الغرف النشطة حالياً',
-                          value: '$totalMatches غرف',
+                          value: '$activeRooms غرف',
                           icon: Icons.forum_outlined,
                           color: AppTheme.primaryOliveGreen,
-                          subtitle: 'تجري محادثات تعارف مبدئي فيها حالياً',
+                          subtitle: 'غرف تركيز فعّالة وغير منتهية ($totalMatches إجمالي التوافقات)',
                         ),
                         const SizedBox(height: 12),
                         _buildStatCard(
@@ -237,9 +240,9 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                         Container(
                           padding: const EdgeInsets.all(24),
                           decoration: BoxDecoration(
-                            color: Colors.white.withOpacity(0.02),
+                            color: Colors.white.withValues(alpha: 0.02),
                             borderRadius: BorderRadius.circular(20),
-                            border: Border.all(color: Colors.white.withOpacity(0.05)),
+                            border: Border.all(color: Colors.white.withValues(alpha: 0.05)),
                           ),
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
@@ -256,15 +259,15 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                               ),
                               const SizedBox(height: 12),
                               Text(
-                                'يقوم النظام بمطابقة المستخدمين النشطين (Active) في نفس المدينة بناءً على السن والاستبيان النفسي تلقائياً. يمكنك تشغيل هذه العملية يدوياً الآن لتحديث الأزواج والغرف فوراً.',
-                                style: TextStyle(color: AppTheme.backgroundBeige.withOpacity(0.7), fontSize: 14, height: 1.6),
+                                'يطابق محرك Hunter داخل قاعدة البيانات المستخدمين المؤهلين (قيد الانتظار والنشطين) في نفس المدينة بناءً على السن والتوجه تلقائياً عند كل تحديث. يمكنك تشغيل دورة كنس يدوية الآن لمطابقة من انضموا مسبقاً.',
+                                style: TextStyle(color: AppTheme.backgroundBeige.withValues(alpha: 0.7), fontSize: 14, height: 1.6),
                               ),
                               const SizedBox(height: 24),
                               ElevatedButton(
                                 onPressed: _isMatchingLoading ? null : _triggerMatchmakingProcess,
                                 style: ElevatedButton.styleFrom(
                                   backgroundColor: AppTheme.primaryOliveGreen,
-                                  disabledBackgroundColor: Colors.grey.withOpacity(0.2),
+                                  disabledBackgroundColor: Colors.grey.withValues(alpha: 0.2),
                                   padding: const EdgeInsets.symmetric(vertical: 18),
                                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
                                   minimumSize: const Size(double.infinity, 54),
