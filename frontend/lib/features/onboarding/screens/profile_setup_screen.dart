@@ -172,13 +172,14 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
         );
       } catch (e) {
         if (!mounted) return;
-        Navigator.of(context).pop(); 
-        
+        Navigator.of(context).pop();
+
+        // Do not surface raw provider errors (may carry request/PII detail).
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text("خطأ في مزود السحابة: $e", style: const TextStyle(fontWeight: FontWeight.bold, fontFamily: 'Tajawal')),
+          const SnackBar(
+            content: Text("تعذّر حفظ البيانات. الرجاء المحاولة مرة أخرى.", style: TextStyle(fontWeight: FontWeight.bold, fontFamily: 'Tajawal')),
             backgroundColor: Colors.redAccent,
-            duration: const Duration(seconds: 4),
+            duration: Duration(seconds: 4),
           )
         );
       }

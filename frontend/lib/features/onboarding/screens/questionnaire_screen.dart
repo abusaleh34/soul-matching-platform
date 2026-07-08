@@ -137,7 +137,7 @@ class _QuestionnaireScreenState extends State<QuestionnaireScreen> {
       },
     );
 
-    debugPrint("--- Final Unified Psychological Extract ($_choices) ---");
+    // Do not log questionnaire answers — they are sensitive PII (PDPL).
 
     final apiService = ApiService();
     final success = await apiService.submitQuestionnaire(_choices);

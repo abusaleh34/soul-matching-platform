@@ -61,10 +61,11 @@ class _WelcomeScreenState extends State<WelcomeScreen> with TickerProviderStateM
         );
       }
     } catch (e) {
+      debugPrint('Authentication failed: $e');
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text("فشل المصادقة: $e", style: const TextStyle(fontWeight: FontWeight.bold, fontFamily: 'Tajawal')),
+        const SnackBar(
+          content: Text("تعذّرت المصادقة. الرجاء المحاولة مرة أخرى.", style: TextStyle(fontWeight: FontWeight.bold, fontFamily: 'Tajawal')),
           backgroundColor: Colors.redAccent,
         ),
       );

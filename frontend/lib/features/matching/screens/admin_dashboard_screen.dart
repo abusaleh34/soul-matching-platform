@@ -49,10 +49,11 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
         _refreshStats();
       }
     } catch (e) {
+      debugPrint('trigger-matchmaking failed: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('فشل تشغيل المطابقة: $e', style: const TextStyle(fontWeight: FontWeight.bold)),
+          const SnackBar(
+            content: Text('تعذّر تشغيل المطابقة. الرجاء المحاولة مرة أخرى.', style: TextStyle(fontWeight: FontWeight.bold)),
             backgroundColor: Colors.redAccent,
           )
         );

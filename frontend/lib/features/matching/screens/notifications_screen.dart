@@ -53,9 +53,10 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     try {
       await _apiService.markNotificationAsRead(id);
     } catch (e) {
+      debugPrint('markNotificationAsRead failed: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('حدث خطأ أثناء تحديث التنبيه: $e'))
+          const SnackBar(content: Text('تعذّر تحديث التنبيه.'))
         );
       }
     }
@@ -73,9 +74,10 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         );
       }
     } catch (e) {
+      debugPrint('markAllNotificationsAsRead failed: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('حدث خطأ: $e'))
+          const SnackBar(content: Text('تعذّر تحديث التنبيهات.'))
         );
       }
     }

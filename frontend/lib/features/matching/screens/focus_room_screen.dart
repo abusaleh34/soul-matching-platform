@@ -156,9 +156,10 @@ class _FocusRoomScreenState extends State<FocusRoomScreen> {
         'content': text,
       });
     } catch (e) {
+      debugPrint('Message send failed: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('فشل الإرسال: $e', style: const TextStyle(fontWeight: FontWeight.bold))),
+          const SnackBar(content: Text('تعذّر إرسال الرسالة. الرجاء المحاولة مرة أخرى.', style: TextStyle(fontWeight: FontWeight.bold))),
         );
       }
     }
