@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/theme/app_theme.dart';
-import '../../../core/services/location_service.dart';
+import '../../../core/data/saudi_cities.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'oath_screen.dart';
 import 'welcome_screen.dart';
@@ -38,13 +38,10 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
   String? _employmentStatus;
   String? _smokingHabit;
 
-  // Anti-Fraud Location
-  bool _isLocating = false;
-  bool _locationVerified = false;
-  bool _manualCityEntry = false;
-  String _country = '';
-  String _city = '';
-  final TextEditingController _cityController = TextEditingController();
+  // City: self-declared from a fixed list (data minimisation — no geolocation,
+  // no third-party geocode). Country is KSA-only per the product's target market.
+  static const String _country = 'المملكة العربية السعودية';
+  String? _selectedCity;
 
   // Options
   final List<String> _genders = ['ذكر', 'أنثى'];
@@ -76,39 +73,7 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
   @override
   void dispose() {
     _firstNameController.dispose();
-    _cityController.dispose();
     super.dispose();
-  }
-
-  void _detectLocation() async {
-    setState(() => _isLocating = true);
-    
-    // Calls the robust centralized structure parsing Web and Mobile securely
-    final cityName = await LocationService.getCityNatively();
-    
-    if (!mounted) return;
-    
-    if (cityName != null) {
-       setState(() {
-         _country = 'المملكة العربية السعودية'; 
-         _city = cityName;
-         _locationVerified = true;
-         _isLocating = false;
-         _manualCityEntry = false;
-       });
-       ScaffoldMessenger.of(context).showSnackBar(
-         const SnackBar(content: Text('تم الربط بالمدينة أوتوماتيكياً بنجاح!', style: TextStyle(fontWeight: FontWeight.bold, fontFamily: 'Tajawal')), backgroundColor: AppTheme.primaryOliveGreen)
-       );
-    } else {
-       // Graceful UX Degradation: Flips the form manually
-       setState(() {
-         _isLocating = false;
-         _manualCityEntry = true;
-       });
-       ScaffoldMessenger.of(context).showSnackBar(
-         const SnackBar(content: Text('تعذر تحديد الموقع الجغرافي. الرجاء إدخال مدينتك يدوياً.', style: TextStyle(fontWeight: FontWeight.bold, fontFamily: 'Tajawal')), backgroundColor: Colors.orangeAccent)
-       );
-    }
   }
 
   List<String> get _maritalStatusOptions {
@@ -121,8 +86,7 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
   }
 
   bool _isFormValid() {
-    if (!_locationVerified && !_manualCityEntry) return false;
-    if (_manualCityEntry && _cityController.text.trim().isEmpty) return false;
+    if (_selectedCity == null) return false;
     if (_gender == null) return false;
     if (_maritalStatus == null) return false;
     if (_educationLevel == null) return false;
@@ -166,8 +130,8 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
         "children_living_with_user": _childrenLiving,
         "polygamy_preference": _gender == 'أنثى' ? _polygamyPref : _desiredWife,
         "country": _country,
-        "city": _manualCityEntry ? _cityController.text.trim() : _city,
-        "location_verified": _locationVerified,
+        "city": _selectedCity,
+        "location_verified": false,
         "education_level": _educationLevel,
         "employment_status": _employmentStatus,
         "smoking_habit": _smokingHabit,
@@ -427,41 +391,11 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
                   _buildDropdown("التدخين / الشيشة", _smokingHabit, _yesNo, (val) => setState(() => _smokingHabit = val)),
 
                   const SizedBox(height: 16),
-                  const Text("تأكيد النطاق الجغرافي (للمطابقة الدقيقة):", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white)),
+                  const Text("المدينة (للمطابقة الجغرافية):", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white)),
                   const SizedBox(height: 16),
-                  
-                  if (_manualCityEntry)
-                     _buildTextField("المدينة (الرجاء إدخال مدينتك يدوياً)", _cityController, isRequired: true)
-                  else if (!_locationVerified)
-                    ElevatedButton.icon(
-                      onPressed: _isLocating ? null : _detectLocation,
-                      icon: _isLocating
-                          ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(color: AppTheme.primaryNavyBlue, strokeWidth: 3))
-                          : const Icon(Icons.location_on, color: AppTheme.primaryNavyBlue, size: 28),
-                      label: Text(_isLocating ? "جاري المطابقة المكانية..." : "تحديد مدينتي أوتوماتيكياً", style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppTheme.primaryNavyBlue)),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: AppTheme.primaryOliveGreen,
-                        padding: const EdgeInsets.symmetric(vertical: 20),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                      ),
-                    )
-                  else
-                    Container(
-                      padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 20),
-                      decoration: BoxDecoration(
-                        color: AppTheme.primaryOliveGreen.withValues(alpha: 0.2),
-                        borderRadius: BorderRadius.circular(16),
-                        border: Border.all(color: AppTheme.primaryOliveGreen, width: 2),
-                      ),
-                      child: Row(
-                        children: [
-                          const Icon(Icons.check_circle, color: AppTheme.primaryOliveGreen, size: 28),
-                          const SizedBox(width: 16),
-                          Text(_city, style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
-                        ],
-                      ),
-                    ),
-                  
+
+                  _buildDropdown("اختر مدينتك", _selectedCity, saudiCities, (val) => setState(() => _selectedCity = val)),
+
                   const SizedBox(height: 56),
 
                   ElevatedButton(
