@@ -52,17 +52,19 @@ async def post_marriage_counselor(match_id: str, user=Depends(get_current_user))
     if match.get("room_status") != "active" or _is_expired(match.get("expires_at")):
         raise HTTPException(status_code=403, detail="This focus room has expired")
 
+    # Data minimisation (PDPL / PRD §6): the LLM receives psychological text
+    # ONLY — never a real name or other identifier. Do not select first_name.
     try:
         u1 = (
             supabase_client.table("profiles")
-            .select("psychological_profile, first_name")
+            .select("psychological_profile")
             .eq("id", match.get("user1_id"))
             .maybe_single()
             .execute()
         )
         u2 = (
             supabase_client.table("profiles")
-            .select("psychological_profile, first_name")
+            .select("psychological_profile")
             .eq("id", match.get("user2_id"))
             .maybe_single()
             .execute()
@@ -77,17 +79,15 @@ async def post_marriage_counselor(match_id: str, user=Depends(get_current_user))
 
     u1_profile = u1_data.get("psychological_profile") or "الملف الشخصي النفسي لم يتم تحليله بعد."
     u2_profile = u2_data.get("psychological_profile") or "الملف الشخصي النفسي لم يتم تحليله بعد."
-    u1_name = u1_data.get("first_name") or "الطرف الأول"
-    u2_name = u2_data.get("first_name") or "الطرف الثاني"
 
     prompt = f"""
     أنت مستشار علاقات زوجية خبير وذكي للغاية، متخصص في الإرشاد الأسري والتوفيق بين الشخصيات بناءً على سماتها النفسية.
     أمامك الملفان النفسيان لشريكين مقبلين على الزواج أو متزوجين حديثاً.
 
-    الشريك الأول ({u1_name}):
+    الطرف الأول:
     {u1_profile}
 
-    الشريك الثاني ({u2_name}):
+    الطرف الثاني:
     {u2_profile}
 
     يرجى تقديم نصيحة ذهبية مخصصة وعميقة باللغة العربية الفصحى الدافئة والمشجعة، تركز على:
