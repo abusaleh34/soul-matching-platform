@@ -9,30 +9,93 @@ import 'features/matching/screens/focus_room_screen.dart';
 import 'features/matching/screens/admin_dashboard_screen.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'core/config/app_config.dart';
+
+// Build-time configuration, injected via --dart-define (see DEPLOYMENT.md).
+// No hardcoded fallback: a missing value fails loud below.
+const String _kSupabaseUrl = String.fromEnvironment('SUPABASE_URL');
+const String _kSupabaseAnonKey = String.fromEnvironment('SUPABASE_ANON_KEY');
 
 // Main Application Entry Point
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  
+
+  final SupabaseConfig config;
   try {
-    await dotenv.load(fileName: ".env");
-  } catch (e) {
-    debugPrint("No .env file found. Falling back to environment variables.");
+    config = resolveSupabaseConfig(
+      url: _kSupabaseUrl,
+      anonKey: _kSupabaseAnonKey,
+    );
+  } on MissingConfigError catch (e) {
+    // Fail loud: never boot against a fallback/leaked project.
+    debugPrint(e.toString());
+    runApp(const ConfigErrorApp());
+    return;
   }
-  
-  final supabaseUrl = dotenv.env['SUPABASE_URL'] ?? const String.fromEnvironment('SUPABASE_URL', defaultValue: 'https://vhayahstcouubjryilvv.supabase.co');
-  final supabaseAnonKey = dotenv.env['SUPABASE_ANON_KEY'] ?? const String.fromEnvironment('SUPABASE_ANON_KEY', defaultValue: '***REMOVED***');
-  
+
   await Supabase.initialize(
-    url: supabaseUrl,
-    anonKey: supabaseAnonKey,
+    url: config.url,
+    anonKey: config.anonKey,
     authOptions: const FlutterAuthClientOptions(
       authFlowType: AuthFlowType.pkce,
     ),
   );
 
   runApp(const SmartMatchingApp());
+}
+
+/// Shown when required build-time configuration is missing. The app cannot
+/// safely connect to Supabase, so it refuses to proceed rather than silently
+/// falling back to a default project.
+class ConfigErrorApp extends StatelessWidget {
+  const ConfigErrorApp({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      debugShowCheckedModeBanner: false,
+      locale: const Locale('ar', 'SA'),
+      localizationsDelegates: const [
+        GlobalMaterialLocalizations.delegate,
+        GlobalWidgetsLocalizations.delegate,
+        GlobalCupertinoLocalizations.delegate,
+      ],
+      supportedLocales: const [Locale('ar', 'SA')],
+      home: Directionality(
+        textDirection: TextDirection.rtl,
+        child: Scaffold(
+          backgroundColor: const Color(0xFF1B2A4A),
+          body: Center(
+            child: Padding(
+              padding: const EdgeInsets.all(32),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: const [
+                  Icon(Icons.error_outline, color: Colors.white, size: 56),
+                  SizedBox(height: 16),
+                  Text(
+                    'تعذّر تشغيل التطبيق: الإعدادات الأساسية غير متوفرة.',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                  SizedBox(height: 12),
+                  Text(
+                    'يرجى التواصل مع فريق الدعم الفني. (خطأ في التهيئة)',
+                    style: TextStyle(color: Colors.white70, fontSize: 15),
+                    textAlign: TextAlign.center,
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 class SmartMatchingApp extends StatelessWidget {
