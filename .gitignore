@@ -1,0 +1,24 @@
+# ── Secrets / environment ────────────────────────────────────────────────
+# Never commit real credentials. Secrets are injected at build/deploy time
+# (Render/Vercel env vars, Flutter --dart-define). See DEPLOYMENT.md.
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.keystore
+
+# ── OS / editor junk ─────────────────────────────────────────────────────
+.DS_Store
+**/.DS_Store
+Thumbs.db
+*.swp
+*~
+.idea/
+.vscode/
+*.iml
+
+# ── Build / tooling artifacts ────────────────────────────────────────────
+build_log.txt
+**/build_log.txt
