@@ -1,0 +1,80 @@
+name: CI
+
+# Gates every push and PR to main. Nothing merges/deploys unless all four
+# jobs are green: backend tests, frontend analyze+test, and the database
+# security gate (RLS/Hunter behaviour + verify_rls invariants).
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  backend:
+    name: Backend (pytest)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install deps
+        run: pip install -r requirements.txt
+      - name: Run tests
+        run: python -m pytest tests -q
+
+  frontend:
+    name: Frontend (analyze + test)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: "3.41.6"
+      - name: Install deps
+        run: flutter pub get
+      - name: Analyze (zero-warning gate, BRD §6)
+        run: flutter analyze
+      - name: Test
+        run: flutter test
+
+  database:
+    name: Database security gate (RLS + Hunter)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # RLS/Hunter behavioural suite — spins up its own throwaway Postgres
+      # via docker (available on GitHub-hosted runners) and asserts the full
+      # migration + RLS positive/negative + Hunter scenario.
+      - name: Behavioural suite (run_local_db_tests.sh)
+        run: bash supabase/tests/run_local_db_tests.sh
+
+      # Deploy-gate invariants against a clean, migrated database.
+      - name: Bring up a target Postgres
+        run: |
+          docker run -d --name verifypg \
+            -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=soul \
+            -p 5432:5432 postgres:15
+          for _ in $(seq 1 30); do
+            docker exec verifypg pg_isready -U postgres && break
+            sleep 1
+          done
+      - name: Apply stubs + migrations
+        env:
+          PGPASSWORD: postgres
+        run: |
+          PSQL="psql -h 127.0.0.1 -p 5432 -U postgres -d soul -v ON_ERROR_STOP=1 -X -q"
+          $PSQL -f supabase/tests/00_local_stubs.sql
+          for f in supabase/migrations/*.sql; do $PSQL -f "$f"; done
+      - name: verify_rls deploy gate
+        env:
+          SUPABASE_DB_URL: postgresql://postgres:postgres@127.0.0.1:5432/soul
+        run: ./supabase/verify_rls.sh
