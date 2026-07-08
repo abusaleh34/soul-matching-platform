@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/services/api_service.dart';
-import '../../matching/screens/match_screen.dart';
 import 'waiting_screen.dart';
 
 class QuestionnaireScreen extends StatefulWidget {
@@ -42,10 +41,15 @@ class _QuestionnaireScreenState extends State<QuestionnaireScreen> {
 
   bool _canProceed() {
     List<String> requiredQuestions = [];
-    if (_currentPage == 0) requiredQuestions = ['q1', 'q2', 'q3'];
-    else if (_currentPage == 1) requiredQuestions = ['q4', 'q5', 'q6'];
-    else if (_currentPage == 2) requiredQuestions = ['q7', 'q8', 'q9'];
-    else if (_currentPage == 3) requiredQuestions = ['q10', 'q11', 'q12'];
+    if (_currentPage == 0) {
+      requiredQuestions = ['q1', 'q2', 'q3'];
+    } else if (_currentPage == 1) {
+      requiredQuestions = ['q4', 'q5', 'q6'];
+    } else if (_currentPage == 2) {
+      requiredQuestions = ['q7', 'q8', 'q9'];
+    } else if (_currentPage == 3) {
+      requiredQuestions = ['q10', 'q11', 'q12'];
+    }
 
     for (var qId in requiredQuestions) {
       if (_textControllers.containsKey(qId)) {
@@ -133,12 +137,8 @@ class _QuestionnaireScreenState extends State<QuestionnaireScreen> {
       },
     );
 
-    // Logging Unified Output Prior to Network
-    print("--- Final Unified Psychological Extract ---");
-    _choices.forEach((key, value) {
-      print("$key: $value");
-    });
-    
+    debugPrint("--- Final Unified Psychological Extract ($_choices) ---");
+
     final apiService = ApiService();
     final success = await apiService.submitQuestionnaire(_choices);
 
@@ -194,11 +194,11 @@ class _QuestionnaireScreenState extends State<QuestionnaireScreen> {
                     color: isSelected ? AppTheme.primaryOliveGreen : AppTheme.backgroundIvory,
                     borderRadius: BorderRadius.circular(16),
                     border: Border.all(
-                      color: isSelected ? AppTheme.primaryOliveGreen : AppTheme.primaryNavyBlue.withOpacity(0.15),
+                      color: isSelected ? AppTheme.primaryOliveGreen : AppTheme.primaryNavyBlue.withValues(alpha: 0.15),
                       width: 1.5,
                     ),
                     boxShadow: isSelected ? [
-                      BoxShadow(color: AppTheme.primaryOliveGreen.withOpacity(0.3), blurRadius: 10, offset: const Offset(0, 4))
+                      BoxShadow(color: AppTheme.primaryOliveGreen.withValues(alpha: 0.3), blurRadius: 10, offset: const Offset(0, 4))
                     ] : [],
                   ),
                   child: Text(
@@ -237,12 +237,12 @@ class _QuestionnaireScreenState extends State<QuestionnaireScreen> {
             onChanged: (_) => setState(() {}),
             decoration: InputDecoration(
               hintText: "اكتب إجابتك هنا بصدق وتفصيل...",
-              hintStyle: TextStyle(color: AppTheme.primaryNavyBlue.withOpacity(0.4)),
+              hintStyle: TextStyle(color: AppTheme.primaryNavyBlue.withValues(alpha: 0.4)),
               filled: true,
               fillColor: AppTheme.backgroundIvory,
               enabledBorder: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(16),
-                borderSide: BorderSide(color: AppTheme.primaryNavyBlue.withOpacity(0.2)),
+                borderSide: BorderSide(color: AppTheme.primaryNavyBlue.withValues(alpha: 0.2)),
               ),
               focusedBorder: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(16),
@@ -461,7 +461,7 @@ class _QuestionnaireScreenState extends State<QuestionnaireScreen> {
                 color: AppTheme.backgroundIvory,
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.black.withOpacity(0.04),
+                    color: Colors.black.withValues(alpha: 0.04),
                     offset: const Offset(0, -6),
                     blurRadius: 20,
                   )
@@ -486,7 +486,7 @@ class _QuestionnaireScreenState extends State<QuestionnaireScreen> {
                     onPressed: _canProceed() ? _nextPage : null,
                     style: ElevatedButton.styleFrom(
                       backgroundColor: AppTheme.primaryOliveGreen,
-                      disabledBackgroundColor: Colors.grey.withOpacity(0.3),
+                      disabledBackgroundColor: Colors.grey.withValues(alpha: 0.3),
                       foregroundColor: Colors.white,
                       padding: const EdgeInsets.symmetric(horizontal: 36, vertical: 16),
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),

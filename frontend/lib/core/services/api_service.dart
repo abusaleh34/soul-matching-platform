@@ -1,197 +1,187 @@
-import 'dart:async';
 import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:supabase_flutter/supabase_flutter.dart';
-import '../models/match_result.dart'; // تأكد أن هذا المسار صحيح في مشروعك
 
 class ApiService {
-  // الرابط السحابي الحقيقي للخادم الخاص بك
+  // Cloud API base URL (FastAPI on Render).
   static const String baseUrl = 'https://soul-matching-api.onrender.com';
 
-  // 1. دالة لجلب الـ ID الخاص بالمستخدم المسجل حالياً من Supabase
-  String? get _currentUserId {
-    return Supabase.instance.client.auth.currentUser?.id;
-  }
+  String? get _currentUserId =>
+      Supabase.instance.client.auth.currentUser?.id;
 
-  // 2. دالة الاتصال بالذكاء الاصطناعي (يجب أن يتم استدعاؤها بعد حفظ الإجابات)
+  String? get _accessToken =>
+      Supabase.instance.client.auth.currentSession?.accessToken;
+
+  // 1. AI match analysis for the current user.
   Future<Map<String, dynamic>> fetchMatchAnalysis() async {
     final userId = _currentUserId;
     if (userId == null) {
       throw Exception('خطأ: لا يوجد مستخدم مسجل الدخول حالياً.');
     }
-
-    try {
-      final response = await http.get(Uri.parse('$baseUrl/match/$userId'));
-      
-      if (response.statusCode == 200) {
-        // فك تشفير النص مع دعم اللغة العربية (UTF-8)
-        return jsonDecode(utf8.decode(response.bodyBytes));
-      } else {
-        throw Exception('فشل في الاتصال بمحرك الذكاء الاصطناعي. الرمز: ${response.statusCode}');
-      }
-    } catch (e) {
-      print("AI Match Fetch Error: $e");
-      rethrow;
+    final response = await http.get(Uri.parse('$baseUrl/match/$userId'));
+    if (response.statusCode == 200) {
+      return jsonDecode(utf8.decode(response.bodyBytes));
     }
+    throw Exception('فشل في الاتصال بمحرك الذكاء الاصطناعي. الرمز: ${response.statusCode}');
   }
 
-  // 3. دالة لحفظ أو تحديث بيانات الملف الشخصي (تعمل مباشرة مع Supabase)
+  // 2. Save/update the profile (directly via Supabase, gated by RLS).
   Future<String?> submitProfileSetup(Map<String, dynamic> profileData) async {
     final userId = _currentUserId;
     if (userId == null) {
-       throw Exception('خطأ: لا يوجد مستخدم مسجل الدخول.');
+      throw Exception('خطأ: لا يوجد مستخدم مسجل الدخول.');
     }
-
-    try {
-      // نستخدم upsert لكي نضمن أنه إذا كان الملف موجوداً يتم تحديثه، وإلا يتم إنشاؤه
-      profileData['id'] = userId; // إجبار ربط البيانات بالـ ID الحالي
-      
-      final response = await Supabase.instance.client
-          .from('profiles')
-          .upsert(profileData)
-          .select('id')
-          .single();
-          
-      print("تم حفظ بيانات الملف الشخصي بنجاح للمستخدم: ${response['id']}");
-      return response['id'] as String;
-    } on PostgrestException catch (e) {
-      print("Supabase Upsert Error: $e");
-      rethrow;
-    } catch (e) {
-      print("General Profile Error: $e");
-      rethrow;
-    }
+    profileData['id'] = userId; // bind row to the authenticated user
+    final response = await Supabase.instance.client
+        .from('profiles')
+        .upsert(profileData)
+        .select('id')
+        .single();
+    return response['id'] as String;
   }
 
-  // 4. دالة لحفظ إجابات الاستبيان (تعمل مباشرة مع Supabase)
+  // 3. Save questionnaire answers.
   Future<bool> submitQuestionnaire(Map<String, dynamic> answers) async {
     final userId = _currentUserId;
-    if (userId == null) {
-       print("لا يمكن حفظ الاستبيان: لا يوجد مستخدم مسجل الدخول.");
-       return false;
-    }
-
+    if (userId == null) return false;
     try {
       await Supabase.instance.client
           .from('profiles')
           .update({'questionnaire_answers': answers})
           .eq('id', userId);
-      print("تم حفظ الإجابات بنجاح في قاعدة البيانات.");
       return true;
     } catch (e) {
-      print("Supabase Update Error: $e");
+      debugPrint('Supabase questionnaire update error: $e');
       return false;
     }
   }
 
-  // 5. دالة لفحص حالة الحساب (اختيارية، تم تعديلها لتكون ديناميكية)
+  // 4. Read the current account status (from profiles).
   Future<String> checkUserStatus() async {
     final userId = _currentUserId;
-    if (userId == null) {
-      return "unauthenticated";
-    }
-
+    if (userId == null) return 'unauthenticated';
     try {
-      // قراءة الحالة مباشرة من قاعدة البيانات بدلاً من الـ Backend لتوفير الوقت
       final response = await Supabase.instance.client
-          .from('users')
+          .from('profiles')
           .select('account_status')
           .eq('id', userId)
-          .single();
-
-      return response['account_status'] ?? "pending";
+          .maybeSingle();
+      return response?['account_status'] ?? 'pending';
     } catch (e) {
-      print("Status Check Error: $e");
-      return "error";
+      debugPrint('Status check error: $e');
+      return 'error';
     }
   }
 
-  // 6. دالة لجلب نصيحة المستشار الذكي ما بعد الزواج
-  Future<String> fetchCounselorAdvice(String matchId) async {
-    try {
-      final response = await http.post(
-        Uri.parse('$baseUrl/api/post-marriage-counselor/$matchId'),
-      );
-      if (response.statusCode == 200) {
-        final data = jsonDecode(utf8.decode(response.bodyBytes));
-        return data['advice'] ?? 'لم نتمكن من الحصول على النصيحة.';
-      } else {
-        throw Exception('فشل في الاتصال بالمستشار الذكي. الرمز: ${response.statusCode}');
-      }
-    } catch (e) {
-      print("Counselor Fetch Error: $e");
-      rethrow;
+  // 5. Post-marriage counselor — STREAMED (JWT-authenticated; participant-only,
+  //    expiry-gated on the server). Emits the cumulative advice text as chunks
+  //    arrive so the UI can render it incrementally (BRD §3.5).
+  Stream<String> streamCounselorAdvice(String matchId) async* {
+    final token = _accessToken;
+    if (token == null) {
+      throw Exception('عذراً، يجب تسجيل الدخول للوصول إلى المستشار.');
+    }
+    final request = http.Request(
+      'POST',
+      Uri.parse('$baseUrl/api/post-marriage-counselor/$matchId'),
+    )..headers['Authorization'] = 'Bearer $token';
+
+    final response = await request.send();
+    if (response.statusCode == 403) {
+      throw Exception('انتهت صلاحية غرفة التركيز.');
+    }
+    if (response.statusCode != 200) {
+      throw Exception('فشل في الاتصال بالمستشار الذكي. الرمز: ${response.statusCode}');
+    }
+
+    final buffer = StringBuffer();
+    await for (final chunk in response.stream.transform(utf8.decoder)) {
+      buffer.write(chunk);
+      yield buffer.toString();
     }
   }
 
-  // 7. دالة جلب إحصائيات لوحة التحكم للمشرفين (محمية بـ JWT)
+  // 6. Admin stats (JWT-authenticated; admin-only on server).
   Future<Map<String, dynamic>> fetchAdminStats() async {
-    final token = Supabase.instance.client.auth.currentSession?.accessToken;
+    final token = _accessToken;
     if (token == null) {
       throw Exception('عذراً، يجب تسجيل الدخول للوصول للإحصائيات.');
     }
-
-    try {
-      final response = await http.get(
-        Uri.parse('$baseUrl/api/admin/stats'),
-        headers: {
-          'Authorization': 'Bearer $token',
-        },
-      );
-      if (response.statusCode == 200) {
-        return jsonDecode(utf8.decode(response.bodyBytes));
-      } else {
-        final errorBody = jsonDecode(utf8.decode(response.bodyBytes));
-        throw Exception(errorBody['detail'] ?? 'فشل تحميل الإحصائيات (${response.statusCode})');
-      }
-    } catch (e) {
-      print("Fetch Admin Stats Error: $e");
-      rethrow;
+    final response = await http.get(
+      Uri.parse('$baseUrl/api/admin/stats'),
+      headers: {'Authorization': 'Bearer $token'},
+    );
+    if (response.statusCode == 200) {
+      return jsonDecode(utf8.decode(response.bodyBytes));
     }
+    final errorBody = jsonDecode(utf8.decode(response.bodyBytes));
+    throw Exception(errorBody['detail'] ?? 'فشل تحميل الإحصائيات (${response.statusCode})');
   }
 
-  // 8. دالة لتشغيل عملية المطابقة يدوياً للمشرف
+  // 7. Admin: manually run the database Hunter sweep (admin-only on server).
   Future<Map<String, dynamic>> triggerMatchmaking() async {
-    try {
-      final response = await http.post(
-        Uri.parse('$baseUrl/api/trigger-matchmaking'),
-      );
-      if (response.statusCode == 200) {
-        return jsonDecode(utf8.decode(response.bodyBytes));
-      } else {
-        throw Exception('فشل تشغيل عملية المطابقة. الرمز: ${response.statusCode}');
-      }
-    } catch (e) {
-      print("Trigger Matchmaking Error: $e");
-      rethrow;
+    final token = _accessToken;
+    if (token == null) {
+      throw Exception('عذراً، يجب تسجيل الدخول كمشرف.');
     }
+    final response = await http.post(
+      Uri.parse('$baseUrl/api/trigger-matchmaking'),
+      headers: {'Authorization': 'Bearer $token'},
+    );
+    if (response.statusCode == 200) {
+      return jsonDecode(utf8.decode(response.bodyBytes));
+    }
+    throw Exception('فشل تشغيل عملية المطابقة. الرمز: ${response.statusCode}');
   }
 
-  // 9. دالة لتحديث حالة التنبيه إلى "مقروء"
+  // 8. Mark a single notification read.
   Future<void> markNotificationAsRead(String id) async {
-    try {
-      await Supabase.instance.client
-          .from('notifications')
-          .update({'is_read': true})
-          .eq('id', id);
-    } catch (e) {
-      print("Error marking notification as read: $e");
-      rethrow;
-    }
+    await Supabase.instance.client
+        .from('notifications')
+        .update({'is_read': true})
+        .eq('id', id);
   }
 
-  // 10. دالة لتحديث حالة كافة التنبيهات إلى "مقروءة" للمستخدم الحالي
+  // 9. Mark ALL of the current user's notifications read (notification center).
   Future<void> markAllNotificationsAsRead() async {
+    final userId = _currentUserId;
+    if (userId == null) return;
+    await Supabase.instance.client
+        .from('notifications')
+        .update({'is_read': true})
+        .eq('user_id', userId);
+  }
+
+  // 10. Active-chat suppression: mark read ONLY notifications for this match
+  //     (BRD §3.4 — do not touch unrelated notifications).
+  Future<void> markMatchNotificationsAsRead(String matchId) async {
     final userId = _currentUserId;
     if (userId == null) return;
     try {
       await Supabase.instance.client
           .from('notifications')
           .update({'is_read': true})
-          .eq('user_id', userId);
+          .eq('user_id', userId)
+          .eq('match_id', matchId);
     } catch (e) {
-      print("Error marking all notifications as read: $e");
-      rethrow;
+      debugPrint('markMatchNotificationsAsRead error: $e');
+    }
+  }
+
+  // 11. Read receipts: mark messages I RECEIVED in this room as read
+  //     (RLS only permits recipient-side updates).
+  Future<void> markMessagesAsRead(String matchId) async {
+    final userId = _currentUserId;
+    if (userId == null) return;
+    try {
+      await Supabase.instance.client
+          .from('messages')
+          .update({'is_read': true})
+          .eq('match_id', matchId)
+          .neq('sender_id', userId);
+    } catch (e) {
+      debugPrint('markMessagesAsRead error: $e');
     }
   }
 }

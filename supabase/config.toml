@@ -1,0 +1,3 @@
+# Supabase CLI config — enables `supabase link` + `supabase db push`.
+# The migrations under supabase/migrations/ are applied in filename order.
+project_id = "vhayahstcouubjryilvv"

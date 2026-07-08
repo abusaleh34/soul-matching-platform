@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/theme/app_theme.dart';
-import '../../../core/services/api_service.dart';
 import '../../../core/services/location_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'oath_screen.dart';
@@ -172,7 +171,8 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
         "education_level": _educationLevel,
         "employment_status": _employmentStatus,
         "smoking_habit": _smokingHabit,
-        "account_status": "pending",
+        // account_status intentionally omitted: the DB defaults it to
+        // 'pending' and RLS forbids clients from setting it (privilege guard).
       };
 
       showDialog(
@@ -227,13 +227,13 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
       padding: const EdgeInsets.only(bottom: 24.0),
       child: DropdownButtonFormField<String>(
         autovalidateMode: AutovalidateMode.onUserInteraction,
-        value: value,
+        initialValue: value,
         dropdownColor: Colors.white, 
         iconEnabledColor: Colors.black,
         style: const TextStyle(color: Colors.black, fontSize: 16, fontWeight: FontWeight.bold),
         decoration: InputDecoration(
           labelText: label,
-          labelStyle: TextStyle(color: Colors.black.withOpacity(0.7), fontSize: 16, fontWeight: FontWeight.bold),
+          labelStyle: TextStyle(color: Colors.black.withValues(alpha: 0.7), fontSize: 16, fontWeight: FontWeight.bold),
           filled: true,
           fillColor: Colors.white, // Absolute pure contrast
           contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 20),
@@ -261,7 +261,7 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
         style: const TextStyle(color: Colors.black, fontSize: 18, fontWeight: FontWeight.bold), // CRITICAL QA MATCH
         decoration: InputDecoration(
           labelText: label,
-          labelStyle: TextStyle(color: Colors.black.withOpacity(0.7), fontSize: 16, fontWeight: FontWeight.bold),
+          labelStyle: TextStyle(color: Colors.black.withValues(alpha: 0.7), fontSize: 16, fontWeight: FontWeight.bold),
           filled: true,
           fillColor: Colors.white, // SOLID WHITE CRITICAL MATCH
           contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 20),
@@ -449,7 +449,7 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
                     Container(
                       padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 20),
                       decoration: BoxDecoration(
-                        color: AppTheme.primaryOliveGreen.withOpacity(0.2),
+                        color: AppTheme.primaryOliveGreen.withValues(alpha: 0.2),
                         borderRadius: BorderRadius.circular(16),
                         border: Border.all(color: AppTheme.primaryOliveGreen, width: 2),
                       ),
@@ -468,7 +468,7 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
                     onPressed: _isFormValid() ? _submit : null,
                     style: ElevatedButton.styleFrom(
                       backgroundColor: AppTheme.primaryOliveGreen,
-                      disabledBackgroundColor: Colors.grey.withOpacity(0.3),
+                      disabledBackgroundColor: Colors.grey.withValues(alpha: 0.3),
                       padding: const EdgeInsets.symmetric(vertical: 24),
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
                     ),

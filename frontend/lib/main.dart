@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'core/theme/app_theme.dart';
 import 'features/onboarding/screens/welcome_screen.dart';
 import 'features/onboarding/screens/profile_setup_screen.dart';
 import 'features/onboarding/screens/waiting_screen.dart';
 import 'features/matching/screens/focus_room_screen.dart';
+import 'features/matching/screens/admin_dashboard_screen.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
@@ -16,7 +18,7 @@ void main() async {
   try {
     await dotenv.load(fileName: ".env");
   } catch (e) {
-    print("No .env file found. Falling back to environment variables.");
+    debugPrint("No .env file found. Falling back to environment variables.");
   }
   
   final supabaseUrl = dotenv.env['SUPABASE_URL'] ?? const String.fromEnvironment('SUPABASE_URL', defaultValue: 'https://vhayahstcouubjryilvv.supabase.co');
@@ -53,9 +55,92 @@ class SmartMatchingApp extends StatelessWidget {
         Locale('ar', 'SA'), // Saudi Arabia Arabic
       ],
       locale: const Locale('ar', 'SA'),
-      
+
       home: const AuthGate(),
+
+      // Web deep-link: /admin is guarded by server-verified is_admin (BRD §3.6/§4.1).
+      onGenerateRoute: (settings) {
+        if (settings.name == '/admin') {
+          return MaterialPageRoute(
+            settings: settings,
+            builder: (_) => const AdminGate(),
+          );
+        }
+        return null;
+      },
     );
+  }
+}
+
+/// Authorises the admin dashboard: shows it only when the signed-in user has
+/// the server-side is_admin flag (a kDebugMode-only @admin.com bypass is kept
+/// strictly behind kDebugMode and never affects release builds).
+class AdminGate extends StatefulWidget {
+  const AdminGate({super.key});
+
+  @override
+  State<AdminGate> createState() => _AdminGateState();
+}
+
+class _AdminGateState extends State<AdminGate> {
+  bool _loading = true;
+  bool _allowed = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _check();
+  }
+
+  Future<void> _check() async {
+    bool allowed = false;
+    try {
+      final user = Supabase.instance.client.auth.currentUser;
+      if (user != null) {
+        final profile = await Supabase.instance.client
+            .from('profiles')
+            .select('is_admin')
+            .eq('id', user.id)
+            .maybeSingle();
+        final isAdmin = profile?['is_admin'] as bool? ?? false;
+        final debugBypass = kDebugMode && (user.email ?? '').endsWith('@admin.com');
+        allowed = isAdmin || debugBypass;
+      }
+    } catch (e) {
+      debugPrint('AdminGate check failed: $e');
+    }
+    if (mounted) {
+      setState(() {
+        _allowed = allowed;
+        _loading = false;
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_loading) {
+      return const Scaffold(
+        backgroundColor: AppTheme.backgroundIvory,
+        body: Center(child: CircularProgressIndicator(color: AppTheme.primaryOliveGreen)),
+      );
+    }
+    if (!_allowed) {
+      return const Scaffold(
+        backgroundColor: AppTheme.primaryNavyBlue,
+        body: Center(
+          child: Padding(
+            padding: EdgeInsets.all(32),
+            child: Text(
+              'لا تملك صلاحية الوصول إلى لوحة الإشراف.',
+              style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
+              textAlign: TextAlign.center,
+            ),
+          ),
+        ),
+      );
+    }
+    return const AdminDashboardScreen();
   }
 }
 
