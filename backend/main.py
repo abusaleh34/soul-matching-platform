@@ -4,16 +4,22 @@ Run with:  uvicorn main:app  (working directory: backend/)
 See Procfile / render.yaml. This is the single authoritative backend app;
 the former SQLAlchemy app under app/main.py has been removed.
 """
+import json
 import logging
 import os
+import time
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, Header, HTTPException
+from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 
 from ai_service import analyze_profile
 from app.api.match_endpoints import router as match_router
 from app.db.database import supabase_client
+from app.hook_signature import verify_standard_webhook
+from app.phone import is_allowed_phone, normalize_phone
+from app.rate_limit import RateLimiter
+from app.sms import get_sms_provider
 from models import WebhookPayload
 
 # Surface application INFO logs (e.g. the analyze_profile privacy audit line
@@ -42,6 +48,48 @@ app.include_router(match_router, prefix="/api", tags=["Matchmaking"])
 @app.get("/")
 def health_check():
     return {"status": "Soul Matching Platform API is running"}
+
+
+# Per-phone OTP-send limiter (SMS cost + brute-force). Per-IP limiting is done
+# by Supabase Auth (the hook does not see the client IP) — see DEPLOYMENT.md.
+_otp_rate_limiter = RateLimiter(max_attempts=5, window_seconds=900)
+
+
+@app.post("/hooks/send-sms")
+async def send_sms_hook(request: Request):
+    """Supabase Send SMS Hook: deliver an OTP via the configured provider.
+
+    Three guards before any SMS leaves: Standard Webhooks signature, the
+    server-side phone allow-list (Saudi only — the client check is cosmetic),
+    and a per-phone rate limit.
+    """
+    secret = os.getenv("SEND_SMS_HOOK_SECRET")
+    body = (await request.body()).decode("utf-8")
+    headers = {k.lower(): v for k, v in request.headers.items()}
+    if not verify_standard_webhook(secret, headers, body):
+        raise HTTPException(status_code=401, detail="Invalid or missing hook signature")
+
+    try:
+        payload = json.loads(body)
+        raw_phone = payload["user"]["phone"]
+        otp = payload["sms"]["otp"]
+    except (KeyError, TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="Malformed Send SMS Hook payload")
+
+    e164 = normalize_phone(raw_phone)
+    if not e164 or not is_allowed_phone(e164):
+        # Server guard — reject before spending an SMS. Client check is cosmetic.
+        raise HTTPException(status_code=422, detail="الخدمة متاحة حاليًا للأرقام السعودية فقط.")
+
+    if not _otp_rate_limiter.allow(e164, now=time.time()):
+        raise HTTPException(status_code=429, detail="Too many OTP requests; please wait.")
+
+    provider = get_sms_provider()
+    message = f"رمز التحقق الخاص بك في تطبيق سول: {otp}"
+    result = provider.send(e164, message)  # NullSmsProvider raises -> 500, fail loud
+    if not result.success:
+        raise HTTPException(status_code=502, detail="SMS delivery failed")
+    return {}
 
 
 @app.post("/webhook/analyze-profile")

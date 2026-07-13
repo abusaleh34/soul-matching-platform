@@ -66,7 +66,10 @@ dashboard / Management API only; no migration can set it.
 | 2 | **Site URL** (URL Configuration) | `https://soul-matching-app.vercel.app` | ✅ Fixed (was `http://localhost:3000`) |
 | 3 | **Redirect URLs** (allow list) | Vercel domain + `http://localhost:3000` (+ `:8080`) for dev | ✅ Fixed (was empty) |
 | 4 | **Custom SMTP** (Auth → Emails) | A real SMTP provider before any email flow ships | ⚠️ **Not set** — Supabase default mailer is rate-limited, not production-grade. Not hit today (anonymous auth sends no email); required for Stage B email/magic-link/recovery |
-| 5 | **Phone provider + SMS** (Providers → Phone) | Enable Phone; configure Twilio/provider; register a **KSA sender ID** | ⚠️ **Disabled** — required for Stage B phone OTP |
+| 5 | **Phone provider** (Providers → Phone) | **Enable** (do NOT pick a built-in provider — we use the Send SMS Hook) | ⚠️ **Disabled** — required for Stage B phone OTP |
+| 5a | **Send SMS Hook** (Authentication → Hooks) | Enable; URI `https://soul-matching-api.onrender.com/hooks/send-sms`; copy generated secret → Render `SEND_SMS_HOOK_SECRET`. See `docs/SMS_PROVIDER_INTEGRATION.md` | ⚠️ Not set — required for OTP delivery |
+| 5b | **SMS provider choice + CST Sender ID** | Choose Taqnyat/Unifonic; register Sender ID with CST; wire `SaudiSmsProvider` + `SMS_PROVIDER=saudi`,`SMS_API_KEY`,`SMS_SENDER_ID` | ⚠️ Not chosen — soft-launch uses `SMS_PROVIDER=logging` (OTP from logs) |
+| 5c | **Auth Rate Limits** (Authentication → Rate Limits) | Set per-IP OTP/SMS limits (the hook can't see client IP — per-phone is enforced in-app) | Default |
 | 6 | Email confirmations / OTP expiry / password policy | Per product decision (defaults: confirm on, `password_min_length=6`, sms OTP 60s) | Defaults; revisit for Stage B |
 | 7 | Arabic email/SMS templates | Localised Arabic copy | Default English; cosmetic until email/SMS flows go live |
 
