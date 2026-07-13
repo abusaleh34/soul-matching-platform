@@ -38,14 +38,15 @@ END $$;
 INSERT INTO public.profiles (id, first_name, gender, age, city, account_status)
 VALUES (:B, 'حواء', 'أنثى', 28, 'الرياض', 'pending');
 
--- 3. Exactly one match; 4. both matched; 5. expires_at = +24h; compat set.
+-- 3. Exactly one match; both 'matched'; room PENDING with no clock yet (B4:
+--    the countdown only starts on mutual acceptance); compat set.
 DO $$
 DECLARE
     v_cnt   INTEGER;
     v_a     TEXT;
     v_b     TEXT;
+    v_status TEXT;
     v_exp   TIMESTAMPTZ;
-    v_made  TIMESTAMPTZ;
     v_pct   INTEGER;
 BEGIN
     SELECT count(*) INTO v_cnt FROM public.matches;
@@ -57,14 +58,36 @@ BEGIN
         RAISE EXCEPTION 'FAIL: both users must be matched (A=%, B=%)', v_a, v_b;
     END IF;
 
-    SELECT expires_at, created_at, match_percentage INTO v_exp, v_made, v_pct FROM public.matches LIMIT 1;
-    IF v_exp < v_made + interval '23 hours' OR v_exp > v_made + interval '25 hours' THEN
-        RAISE EXCEPTION 'FAIL: expires_at must be ~24h after creation (created=%, expires=%)', v_made, v_exp;
+    SELECT room_status, expires_at, match_percentage INTO v_status, v_exp, v_pct FROM public.matches LIMIT 1;
+    IF v_status <> 'pending' OR v_exp IS NOT NULL THEN
+        RAISE EXCEPTION 'FAIL: new room must be pending with no clock (status=%, expires=%)', v_status, v_exp;
     END IF;
     IF v_pct IS NULL OR v_pct < 80 THEN
         RAISE EXCEPTION 'FAIL: compatibility not set sensibly (got %)', v_pct;
     END IF;
-    RAISE NOTICE 'OK: A+B matched, 1 room, expires ~24h, compat=%', v_pct;
+    RAISE NOTICE 'OK: A+B matched, 1 pending room (no clock), compat=%', v_pct;
+END $$;
+
+-- 3b. Mutual acceptance activates the room and starts the 24h clock.
+DO $$
+DECLARE
+    mid uuid;
+    v_status TEXT;
+    v_exp TIMESTAMPTZ;
+    v_made TIMESTAMPTZ;
+BEGIN
+    SELECT id INTO mid FROM public.matches LIMIT 1;
+    PERFORM set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-00000000000a', true);
+    IF public.decide_match(mid, 'accepted') <> 'pending' THEN RAISE EXCEPTION 'FAIL: one-sided accept should stay pending'; END IF;
+    PERFORM set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-00000000000b', true);
+    IF public.decide_match(mid, 'accepted') <> 'active' THEN RAISE EXCEPTION 'FAIL: mutual accept did not activate'; END IF;
+
+    SELECT room_status, expires_at, created_at INTO v_status, v_exp, v_made FROM public.matches WHERE id = mid;
+    IF v_status <> 'active' OR v_exp IS NULL THEN RAISE EXCEPTION 'FAIL: room not active/clock-started (%, %)', v_status, v_exp; END IF;
+    IF v_exp < now() + interval '23 hours' OR v_exp > now() + interval '25 hours' THEN
+        RAISE EXCEPTION 'FAIL: clock must be ~24h from acceptance (expires=%)', v_exp;
+    END IF;
+    RAISE NOTICE 'OK: mutual accept -> active + ~24h clock';
 END $$;
 
 -- 6. Duplicate-matching impossible: a 3rd eligible woman cannot steal A.

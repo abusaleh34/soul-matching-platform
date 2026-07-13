@@ -76,6 +76,10 @@ echo "== Phone identity (allow-list wall, auth sync, legacy exclusion) =="
 "${PSQL[@]}" -f "$HERE/50_phone_identity.sql" >/tmp/phone.out 2>&1 \
   && ok "phone identity" || { bad "phone identity"; tail -10 /tmp/phone.out; }
 
+echo "== Match consent (pending room, mutual-accept, reject, IDOR) =="
+"${PSQL[@]}" -f "$HERE/60_match_consent.sql" >/tmp/match_consent.out 2>&1 \
+  && ok "match consent" || { bad "match consent"; tail -12 /tmp/match_consent.out; }
+
 echo "== RLS negative checks (each MUST be rejected) =="
 A="00000000-0000-0000-0000-00000000000a"
 B="00000000-0000-0000-0000-00000000000b"
