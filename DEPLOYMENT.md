@@ -33,6 +33,57 @@ Never deploy the app ahead of the database. The order is:
 If `verify_rls` fails, STOP: the client would be exposed because RLS/grants are
 the only wall in front of a public anon key. Fix migrations, re-run, then deploy.
 
+## Dashboard Settings Checklist (settings that live OUTSIDE the migrations)
+
+**Why this exists:** re-provisioning to Frankfurt lost three settings that are
+not in any migration — Anonymous sign-ins (disabled), the analysis trigger
+column (a code bug, now fixed), and the `supabase_realtime` publication (empty).
+Everything below is either now encoded in a migration, or is a dashboard-only
+setting that MUST be re-applied by hand on every re-provision (including the
+eventual migration to a KSA-resident / self-hosted Supabase). Verify every row.
+
+Legend: **Encoded** = reproduced by `supabase db push` (migrations). **Manual** =
+dashboard / Management API only; no migration can set it.
+
+### Now encoded in migrations (verify they applied, no manual step)
+| Setting | Migration | verify |
+|---|---|---|
+| Extensions: `pg_net`, `pg_cron`, `supabase_vault` | `0010` (+ `0007`) | `select extname from pg_extension` |
+| Realtime publication: `messages`, `matches`, `notifications` | `0009` | `select tablename from pg_publication_tables where pubname='supabase_realtime'` |
+| Cron: `expire-stale-rooms` every 15 min | `0007` | `select jobname from cron.job` |
+| Analysis webhook trigger (fires on `questionnaire_answers`) | `0008` | `40_realtime.sql` / `30_webhook_trigger.sql` in the DB suite |
+| RLS + column grants + partner RPC | `0005`/`0006` | `./supabase/verify_rls.sh` (must exit 0) |
+
+> Caveat: on a **self-hosted** Postgres, `supabase_vault`/`pg_net`/`pg_cron` must
+> be *available* before `db push` (migration `0007` reads `vault.decrypted_secrets`
+> at function-create time). Hosted Supabase pre-enables them. `0010` enables them
+> if available and no-ops otherwise.
+
+### Manual — Auth (Dashboard → Authentication) — re-apply every re-provision
+| # | Setting | Required value | Current prod state |
+|---|---|---|---|
+| 1 | **Anonymous sign-ins** (Providers → Anonymous) | **Enabled** (the app signs in anonymously) | ✅ Enabled |
+| 2 | **Site URL** (URL Configuration) | `https://soul-matching-app.vercel.app` | ✅ Fixed (was `http://localhost:3000`) |
+| 3 | **Redirect URLs** (allow list) | Vercel domain + `http://localhost:3000` (+ `:8080`) for dev | ✅ Fixed (was empty) |
+| 4 | **Custom SMTP** (Auth → Emails) | A real SMTP provider before any email flow ships | ⚠️ **Not set** — Supabase default mailer is rate-limited, not production-grade. Not hit today (anonymous auth sends no email); required for Stage B email/magic-link/recovery |
+| 5 | **Phone provider + SMS** (Providers → Phone) | Enable Phone; configure Twilio/provider; register a **KSA sender ID** | ⚠️ **Disabled** — required for Stage B phone OTP |
+| 6 | Email confirmations / OTP expiry / password policy | Per product decision (defaults: confirm on, `password_min_length=6`, sms OTP 60s) | Defaults; revisit for Stage B |
+| 7 | Arabic email/SMS templates | Localised Arabic copy | Default English; cosmetic until email/SMS flows go live |
+
+### Manual — Data-plane secrets & other (Management API / Dashboard)
+| # | Setting | Action | Current prod state |
+|---|---|---|---|
+| 8 | **Vault secret `webhook_secret`** | `select vault.create_secret('<value>', 'webhook_secret');` — MUST match Render `SUPABASE_WEBHOOK_SECRET` byte-for-byte | ✅ Set (matches Render) |
+| 9 | **Realtime toggle** (Dashboard → Database → Replication) | Encoded in `0009`; if a re-provision predates that migration, also toggle here | ✅ via `0009` |
+| 10 | **Storage buckets** | None yet. When photos ship (WP-M1), create the bucket(s) + RLS — will be encoded then | N/A (no media yet) |
+| 11 | **API exposed schemas / max rows** | `public,graphql_public`, max_rows 1000 (defaults are correct) | ✅ Default |
+| 12 | **SSL enforcement** (DB connections) | Optional hardening; enable if using direct psql from outside | ⚠️ Off (app uses HTTPS API; low priority) |
+| 13 | **PITR / backups**, **compute size** | Per ops decision | nano (free) — revisit for launch scale |
+
+### Founder must also re-apply on the app side (see other sections)
+- **Render** env: `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_WEBHOOK_SECRET` (== Vault #8), `GEMINI_API_KEY` (valid!), `FRONTEND_ORIGINS`; service `rootDir=backend`, `startCommand=uvicorn main:app`, branch `main`.
+- **Vercel** env: `SUPABASE_URL`, `SUPABASE_ANON_KEY` (build-time `--dart-define`).
+
 ## Backend (Render)
 
 - Service defined in `render.yaml` (`rootDir: backend`, `uvicorn main:app`).
