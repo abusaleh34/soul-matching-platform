@@ -72,6 +72,10 @@ echo "== Realtime publication membership (messages/matches/notifications) =="
 "${PSQL[@]}" -f "$HERE/40_realtime.sql" >/tmp/realtime.out 2>&1 \
   && ok "realtime publication membership" || { bad "realtime publication membership"; tail -6 /tmp/realtime.out; }
 
+echo "== Phone identity (allow-list wall, auth sync, legacy exclusion) =="
+"${PSQL[@]}" -f "$HERE/50_phone_identity.sql" >/tmp/phone.out 2>&1 \
+  && ok "phone identity" || { bad "phone identity"; tail -10 /tmp/phone.out; }
+
 echo "== RLS negative checks (each MUST be rejected) =="
 A="00000000-0000-0000-0000-00000000000a"
 B="00000000-0000-0000-0000-00000000000b"

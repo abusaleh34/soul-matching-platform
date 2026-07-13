@@ -18,6 +18,9 @@ CREATE TABLE IF NOT EXISTS auth.users (
     id    UUID PRIMARY KEY,
     email TEXT
 );
+-- extra columns the app depends on (real Supabase provides these)
+ALTER TABLE auth.users ADD COLUMN IF NOT EXISTS phone TEXT;
+ALTER TABLE auth.users ADD COLUMN IF NOT EXISTS is_anonymous BOOLEAN DEFAULT false;
 
 -- Emulates Supabase's auth.uid(): reads the JWT subject from a session GUC.
 CREATE OR REPLACE FUNCTION auth.uid()
