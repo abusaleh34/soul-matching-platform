@@ -1,10 +1,10 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/services/api_service.dart';
 import '../../../core/utils/focus_room_format.dart';
+import '../logic/message_send.dart';
 import 'notification_bell.dart';
 
 class FocusRoomScreen extends StatefulWidget {
@@ -141,28 +141,62 @@ class _FocusRoomScreenState extends State<FocusRoomScreen> {
       return;
     }
 
-    final matchId = widget.matchData['id'];
-    final prefs = await SharedPreferences.getInstance();
-    final localId = prefs.getString('current_user_id');
-    final currentUserId = Supabase.instance.client.auth.currentUser?.id ?? localId;
-    if (currentUserId == null) return;
-
-    _chatController.clear();
+    // sender_id MUST be the authenticated session user (RLS: sender_id =
+    // auth.uid()). No cached-id fallback — that would be an unauthenticated
+    // insert and fail with 42501.
+    final user = Supabase.instance.client.auth.currentUser;
+    final req = buildMessageRequest(
+      authUserId: user?.id,
+      matchId: widget.matchData['id'] as String?,
+      content: text,
+    );
+    if (req == null) {
+      if (user == null && mounted) {
+        _showSendError('انتهت الجلسة. الرجاء إعادة تسجيل الدخول ثم المحاولة.', canRetry: false);
+      }
+      return; // keep the typed text so nothing is lost
+    }
 
     try {
       await Supabase.instance.client.from('messages').insert({
-        'match_id': matchId,
-        'sender_id': currentUserId,
-        'content': text,
+        'match_id': req.matchId,
+        'sender_id': req.senderId,
+        'content': req.content,
       });
+      _chatController.clear(); // clear ONLY after a successful send
+    } on PostgrestException catch (e) {
+      // Surface the real Postgres error (e.g. 42501 RLS / 23503 FK) so failures
+      // are diagnosable, and keep a retry path instead of a dead-end banner.
+      debugPrint('Message send failed: code=${e.code} message=${e.message}');
+      if (mounted) {
+        _showSendError(
+          'تعذّر إرسال الرسالة${e.code != null && e.code!.isNotEmpty ? ' (رمز ${e.code})' : ''}. الرجاء إعادة المحاولة.',
+          canRetry: true,
+        );
+      }
     } catch (e) {
       debugPrint('Message send failed: $e');
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('تعذّر إرسال الرسالة. الرجاء المحاولة مرة أخرى.', style: TextStyle(fontWeight: FontWeight.bold))),
-        );
+        _showSendError('تعذّر إرسال الرسالة. تحقق من اتصالك ثم أعد المحاولة.', canRetry: true);
       }
     }
+  }
+
+  void _showSendError(String message, {required bool canRetry}) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message, style: const TextStyle(fontWeight: FontWeight.bold)),
+        backgroundColor: Colors.redAccent,
+        duration: const Duration(seconds: 6),
+        action: canRetry
+            ? SnackBarAction(
+                label: 'إعادة المحاولة',
+                textColor: Colors.white,
+                onPressed: _sendMessage,
+              )
+            : null,
+      ),
+    );
   }
 
   void _showCounselorAdviceBottomSheet(BuildContext context) {
