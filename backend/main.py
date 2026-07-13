@@ -4,6 +4,7 @@ Run with:  uvicorn main:app  (working directory: backend/)
 See Procfile / render.yaml. This is the single authoritative backend app;
 the former SQLAlchemy app under app/main.py has been removed.
 """
+import logging
 import os
 
 from dotenv import load_dotenv
@@ -14,6 +15,10 @@ from ai_service import analyze_profile
 from app.api.match_endpoints import router as match_router
 from app.db.database import supabase_client
 from models import WebhookPayload
+
+# Surface application INFO logs (e.g. the analyze_profile privacy audit line
+# that records the outbound payload keys) in the Render log stream.
+logging.basicConfig(level=logging.INFO, format="%(levelname)s:%(name)s:%(message)s", force=True)
 
 load_dotenv()
 
