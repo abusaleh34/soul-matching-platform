@@ -68,7 +68,13 @@ async def analyze_profile_webhook(
     if not city or not str(city).strip():
         return {"message": "Ignored: a validated City field is required for analysis"}
 
-    questionnaire_answers = record.get("questionnaire_answers") or record
+    # Require a completed questionnaire. Do NOT fall back to the whole record:
+    # that would forward identifying fields (first_name, city, …) to the LLM,
+    # and would run a premature analysis before the questionnaire exists.
+    questionnaire_answers = record.get("questionnaire_answers")
+    if not questionnaire_answers:
+        return {"message": "Ignored: questionnaire not yet completed"}
+
     try:
         psychological_profile = await analyze_profile(questionnaire_answers)
     except Exception as exc:
