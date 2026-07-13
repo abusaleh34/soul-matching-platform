@@ -68,6 +68,10 @@ echo "== Analysis-webhook trigger firing (fires on questionnaire completion) =="
 "${PSQL[@]}" -f "$HERE/30_webhook_trigger.sql" >/tmp/webhook_trig.out 2>&1 \
   && ok "analysis trigger firing" || { bad "analysis trigger firing"; tail -8 /tmp/webhook_trig.out; }
 
+echo "== Realtime publication membership (messages/matches/notifications) =="
+"${PSQL[@]}" -f "$HERE/40_realtime.sql" >/tmp/realtime.out 2>&1 \
+  && ok "realtime publication membership" || { bad "realtime publication membership"; tail -6 /tmp/realtime.out; }
+
 echo "== RLS negative checks (each MUST be rejected) =="
 A="00000000-0000-0000-0000-00000000000a"
 B="00000000-0000-0000-0000-00000000000b"
@@ -83,6 +87,18 @@ deny() { # label  sql  jwt_sub  [role]
     fi
 }
 
+allow() { # label  sql  jwt_sub  [role]   (runs in a rolled-back txn)
+    local label="$1" sql="$2" sub="$3" role="${4:-authenticated}"
+    if "${PSQL[@]}" -c "BEGIN; SET LOCAL request.jwt.claim.sub='$sub'; SET LOCAL ROLE $role; $sql; ROLLBACK;" >/dev/null 2>&1; then
+        ok "allowed: $label"
+    else
+        bad "WRONGLY rejected: $label"
+    fi
+}
+
+# The message-send authz contract (client bug was NOT here — RLS is correct):
+allow "participant self-insert message"  "INSERT INTO public.messages(match_id,sender_id,content) VALUES ('$MID','$A','hi from A')" "$A"
+deny  "anon message insert (lost session)" "INSERT INTO public.messages(match_id,sender_id,content) VALUES ('$MID','$A','from anon')" "" "anon"
 deny "spoof sender_id"               "INSERT INTO public.messages(match_id,sender_id,content) VALUES ('$MID','$B','spoof')" "$A"
 deny "non-participant message insert" "INSERT INTO public.messages(match_id,sender_id,content) VALUES ('$MID','$E','intruder')" "$E"
 deny "tamper is_admin"               "UPDATE public.profiles SET is_admin=true WHERE id='$A'" "$A"

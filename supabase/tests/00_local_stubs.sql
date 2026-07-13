@@ -68,3 +68,12 @@ INSERT INTO vault._secrets(name, decrypted_secret)
     ON CONFLICT (name) DO NOTHING;
 CREATE OR REPLACE VIEW vault.decrypted_secrets AS
     SELECT name, decrypted_secret FROM vault._secrets;
+
+-- Empty supabase_realtime publication (real Supabase ships this) so migration
+-- 0009 can add the core tables to it and the membership can be tested locally.
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_publication WHERE pubname = 'supabase_realtime') THEN
+        CREATE PUBLICATION supabase_realtime;
+    END IF;
+END $$;
