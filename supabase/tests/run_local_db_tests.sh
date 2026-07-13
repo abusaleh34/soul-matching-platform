@@ -64,6 +64,10 @@ echo "== RLS positive assertions =="
 "${PSQL[@]}" -f "$HERE/20_rls_positive.sql" >/tmp/rls_pos.out 2>&1 \
   && ok "rls positive assertions" || { bad "rls positive"; tail -5 /tmp/rls_pos.out; }
 
+echo "== Analysis-webhook trigger firing (fires on questionnaire completion) =="
+"${PSQL[@]}" -f "$HERE/30_webhook_trigger.sql" >/tmp/webhook_trig.out 2>&1 \
+  && ok "analysis trigger firing" || { bad "analysis trigger firing"; tail -8 /tmp/webhook_trig.out; }
+
 echo "== RLS negative checks (each MUST be rejected) =="
 A="00000000-0000-0000-0000-00000000000a"
 B="00000000-0000-0000-0000-00000000000b"
