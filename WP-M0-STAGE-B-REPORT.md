@@ -44,12 +44,15 @@ point: server enforcement + no reachable/working UI = not real.
 
 ---
 
+## Loose ends — now sealed (UI-driven on prod, no inference)
+- **Consent (blocking) — UI-proven:** drove the **real profile form** (no seeding) to the consent gate. Before أوافق: DB `consent_version=0, consented_at=null` — the user is stopped with no path past the screen. Tapped **أوافق** → DB `consent_version=1, consented_at` set → UI advanced to the oath. So an unconsented user cannot proceed, and `record_consent` fires from the actual button.
+- **Block — UI-proven:** room safety menu → حظر → متابعة → DB `block_row_written=true, room_status=closed, excluded=true`.
+- **Unmatch — UI-proven:** on a known-active room, safety menu → إلغاء المطابقة → متابعة → **that exact match** `room_status=closed` (deterministic, not inferred).
+
 ## Not done / honest gaps
 | Item | Status |
 |---|---|
-| **Consent screen UI-drive** | ConsentScreen built + wired (profile-setup → consent → oath); `record_consent` prod-proven. **Not UI-driven this run** (I seeded past the long profile form to reach the compliance screens). Renders + wired; recommend a UI drive next run. |
-| **Phone/OTP screen + live OTP journey** | Blocked on FOUNDER ACTIONS (below). |
-| **Block/unmatch UI click-through** | Menu items reachable (shown); RPCs prod-proven; report drove the identical menu→confirm→RPC path. Block/unmatch not individually clicked this run. |
+| **Phone/OTP screen + live OTP journey** | Blocked on FOUNDER ACTIONS (below). The only remaining item. |
 
 ## FOUNDER ACTIONS (the only remaining launch blocker)
 1. Choose a Saudi SMS provider + register a **CST Sender ID**.
@@ -73,13 +76,15 @@ fingerprint) while matching is demographic-only. Confirmed on the live UI this r
 | 2 | Match requires mutual accept | 🟢 **UI-proven on prod** |
 | 3 | Reject/accept reachable | 🟢 **UI-proven** |
 | 4 | Delete account reachable + works | 🟢 **UI-proven on prod** (CORS bug fixed) |
-| 5 | Report/block/unmatch reachable | 🟢 report UI-proven; block/unmatch reachable + RPC-proven |
+| 5 | Report/block/unmatch reachable | 🟢 **all three UI-proven on prod** (report + block + unmatch each driven, DB-verified) |
 | 6 | Partner graceful degradation | 🟢 **UI-proven** (screenshot) |
-| 7 | Consent captured + versioned | 🟡 built + wired + backend-proven; not UI-driven this run |
+| 7 | Consent captured + versioned | 🟢 **UI-proven** (blocking gate at v=0; أوافق → v=1 → advances) |
 | 8 | `expire_stale_rooms` firing | 🟢 **proven live** |
 | 9 | Stage A privacy holds live | 🟢 **re-proven this run** (`keys=['q1','q9']`, no name) |
 
 **Why still NO-GO:** the founder ruled soft launch requires phone OTP, and that
-path needs the four founder actions. **Everything engineering owns for the
-no-SMS trust layer is done and UI-proven.** Once SMS is wired: build the
-phone/OTP + consent screen drive, run the OTP journey, flip gate 1 to GREEN.
+path needs the four founder actions. **The no-SMS trust layer is now SEALED —
+every gate except phone-OTP is UI-proven on prod** (consent blocking, accept/
+reject, message, report, block, unmatch, partner-degradation, delete, privacy).
+Gate 1 is the only remaining item; once SMS is wired I'll build the phone/OTP
+screen and run the live OTP journey.
