@@ -10,10 +10,11 @@ import os
 import time
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, Header, HTTPException, Request
+from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 
 from ai_service import analyze_profile
+from app.api.deps import get_current_user
 from app.api.match_endpoints import router as match_router
 from app.db.database import supabase_client
 from app.hook_signature import verify_standard_webhook
@@ -48,6 +49,20 @@ app.include_router(match_router, prefix="/api", tags=["Matchmaking"])
 @app.get("/")
 def health_check():
     return {"status": "Soul Matching Platform API is running"}
+
+
+@app.delete("/me")
+async def delete_me(user=Depends(get_current_user)):
+    """PDPL right to erasure: hard-delete the caller's account. Cascades remove
+    their profile/messages/notifications; their rooms are marked closed and the
+    deleter's slot nulled so the partner sees an ended conversation."""
+    if supabase_client is None:
+        raise HTTPException(status_code=500, detail="Database not configured")
+    try:
+        supabase_client.rpc("erase_user", {"p_uid": user.id}).execute()
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Erasure failed: {exc}")
+    return {"message": "Account erased", "id": user.id}
 
 
 # Per-phone OTP-send limiter (SMS cost + brute-force). Per-IP limiting is done
