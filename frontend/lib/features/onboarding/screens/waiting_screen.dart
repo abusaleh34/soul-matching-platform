@@ -3,8 +3,10 @@ import 'package:flutter/foundation.dart';
 import '../../../core/theme/app_theme.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../matching/screens/focus_room_screen.dart';
+import '../../matching/screens/match_decision_screen.dart';
 import '../../matching/screens/notification_bell.dart';
 import '../../matching/screens/admin_dashboard_screen.dart';
+import '../../settings/screens/settings_screen.dart';
 
 class WaitingScreen extends StatefulWidget {
   final String profileId;
@@ -121,20 +123,24 @@ class _WaitingScreenState extends State<WaitingScreen> with SingleTickerProvider
     if (!mounted) return;
 
     if (status == 'matched') {
-      // Matched by the database Hunter -> enter the exclusive Focus Room (BRD §3.3).
+      // A pending match needs accept/reject first; an active one opens the room.
       try {
         final match = await Supabase.instance.client
             .from('matches')
             .select('id, match_percentage, ai_reasoning, expires_at, room_status, user1_id, user2_id')
             .or('user1_id.eq.$activeUserId,user2_id.eq.$activeUserId')
-            .eq('room_status', 'active')
+            .inFilter('room_status', ['pending', 'active'])
             .maybeSingle();
 
         if (!mounted) return;
         if (match != null) {
           Navigator.pushReplacement(
             context,
-            MaterialPageRoute(builder: (context) => FocusRoomScreen(matchData: match)),
+            MaterialPageRoute(
+              builder: (context) => match['room_status'] == 'pending'
+                  ? MatchDecisionScreen(matchData: match)
+                  : FocusRoomScreen(matchData: match),
+            ),
           );
           return;
         }
@@ -185,8 +191,18 @@ class _WaitingScreenState extends State<WaitingScreen> with SingleTickerProvider
                 },
               )
             : null,
-        actions: const [
-          NotificationBell(),
+        actions: [
+          Semantics(
+            button: true,
+            label: 'الإعدادات',
+            child: IconButton(
+              icon: const Icon(Icons.settings, color: AppTheme.backgroundIvory),
+              tooltip: 'الإعدادات',
+              onPressed: () => Navigator.push(
+                context, MaterialPageRoute(builder: (_) => const SettingsScreen())),
+            ),
+          ),
+          const NotificationBell(),
         ],
       ),
       body: SafeArea(

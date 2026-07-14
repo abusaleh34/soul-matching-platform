@@ -13,6 +13,17 @@ class ApiService {
   String? get _accessToken =>
       Supabase.instance.client.auth.currentSession?.accessToken;
 
+  /// PDPL right to erasure — DELETE /me. Returns true on success.
+  Future<bool> deleteMe() async {
+    final token = _accessToken;
+    if (token == null) return false;
+    final resp = await http.delete(
+      Uri.parse('$baseUrl/me'),
+      headers: {'Authorization': 'Bearer $token'},
+    );
+    return resp.statusCode == 200;
+  }
+
   // 1. AI match analysis for the current user.
   Future<Map<String, dynamic>> fetchMatchAnalysis() async {
     final userId = _currentUserId;

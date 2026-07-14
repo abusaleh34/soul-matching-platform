@@ -6,6 +6,7 @@ import 'features/onboarding/screens/welcome_screen.dart';
 import 'features/onboarding/screens/profile_setup_screen.dart';
 import 'features/onboarding/screens/waiting_screen.dart';
 import 'features/matching/screens/focus_room_screen.dart';
+import 'features/matching/screens/match_decision_screen.dart';
 import 'features/matching/screens/admin_dashboard_screen.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -18,7 +19,9 @@ const String _kSupabaseAnonKey = String.fromEnvironment('SUPABASE_ANON_KEY');
 
 // Main Application Entry Point
 void main() async {
-  WidgetsFlutterBinding.ensureInitialized();
+  final binding = WidgetsFlutterBinding.ensureInitialized();
+  // Always expose the semantics tree (accessibility + testability on web).
+  binding.ensureSemantics();
 
   final SupabaseConfig config;
   try {
@@ -245,16 +248,20 @@ class _AuthGateState extends State<AuthGate> {
 
       // 2. Strict Room and Profile Catching Engine
       try {
-        // Prioritize querying the active matches table natively for any locks
+        // A pending match awaits accept/reject; an active one opens the room.
         final matchRes = await Supabase.instance.client
             .from('matches')
-            .select('id, match_percentage, ai_reasoning, expires_at, room_status')
+            .select('id, match_percentage, ai_reasoning, expires_at, room_status, user1_id, user2_id')
             .or('user1_id.eq.$currentUserId,user2_id.eq.$currentUserId')
-            .eq('room_status', 'active')
+            .inFilter('room_status', ['pending', 'active'])
             .maybeSingle();
-            
+
         if (matchRes != null) {
-          _safeRoute(FocusRoomScreen(matchData: matchRes));
+          if (matchRes['room_status'] == 'pending') {
+            _safeRoute(MatchDecisionScreen(matchData: matchRes));
+          } else {
+            _safeRoute(FocusRoomScreen(matchData: matchRes));
+          }
           return;
         }
 

@@ -6,6 +6,7 @@ import '../../../core/services/api_service.dart';
 import '../../../core/utils/focus_room_format.dart';
 import '../logic/message_send.dart';
 import 'notification_bell.dart';
+import '../../onboarding/screens/waiting_screen.dart';
 
 class FocusRoomScreen extends StatefulWidget {
   final Map<String, dynamic> matchData;
@@ -342,6 +343,63 @@ class _FocusRoomScreenState extends State<FocusRoomScreen> {
     );
   }
 
+  Future<bool> _confirmSafety(String title, String body) async {
+    final r = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(title, style: const TextStyle(fontWeight: FontWeight.bold)),
+        content: Text(body),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('إلغاء')),
+          TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('متابعة')),
+        ],
+      ),
+    );
+    return r ?? false;
+  }
+
+  void _leaveRoom(String message) {
+    final uid = Supabase.instance.client.auth.currentUser?.id ?? '';
+    if (!mounted) return;
+    Navigator.of(context).pushAndRemoveUntil(
+      MaterialPageRoute(builder: (_) => WaitingScreen(profileId: uid)), (r) => false);
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  Future<void> _onSafetyAction(String action, String currentUserId) async {
+    final matchId = _currentMatchData['id'] as String;
+    final u1 = _currentMatchData['user1_id'];
+    final u2 = _currentMatchData['user2_id'];
+    final partnerId = (u1 == currentUserId) ? u2 : u1;
+    try {
+      if (action == 'unmatch') {
+        if (!await _confirmSafety('إلغاء المطابقة', 'سيتم إغلاق غرفة التركيز. هل تتابع؟')) return;
+        await Supabase.instance.client.rpc('unmatch', params: {'p_match_id': matchId});
+        _leaveRoom('تم إلغاء المطابقة');
+      } else if (action == 'block') {
+        if (partnerId == null) return;
+        if (!await _confirmSafety('حظر الطرف', 'لن تتم مطابقتك بهذا الطرف مرة أخرى. هل تتابع؟')) return;
+        await Supabase.instance.client.rpc('block_user', params: {'p_blocked_id': partnerId});
+        _leaveRoom('تم حظر الطرف');
+      } else if (action == 'report') {
+        if (partnerId == null) return;
+        if (!await _confirmSafety('إبلاغ عن الطرف', 'سيتم إرسال بلاغ للمشرفين. هل تتابع؟')) return;
+        await Supabase.instance.client.rpc('report_user',
+            params: {'p_reported_id': partnerId, 'p_match_id': matchId, 'p_reason': 'إساءة/تحرش'});
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('تم استلام بلاغك. شكرًا لك.')));
+        }
+      }
+    } catch (e) {
+      debugPrint('safety action failed: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('تعذّر تنفيذ العملية. حاول مجددًا.')));
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final percentage = _currentMatchData['match_percentage'] ?? 0;
@@ -365,7 +423,23 @@ class _FocusRoomScreenState extends State<FocusRoomScreen> {
         backgroundColor: Colors.transparent,
         elevation: 0,
         foregroundColor: AppTheme.backgroundIvory,
-        actions: const [NotificationBell()],
+        actions: [
+          Semantics(
+            button: true,
+            label: 'خيارات الأمان',
+            child: PopupMenuButton<String>(
+              icon: const Icon(Icons.shield_outlined, color: AppTheme.backgroundIvory),
+              tooltip: 'خيارات الأمان',
+              onSelected: (v) => _onSafetyAction(v, currentUserId),
+              itemBuilder: (_) => const [
+                PopupMenuItem(value: 'report', child: Text('إبلاغ عن الطرف')),
+                PopupMenuItem(value: 'block', child: Text('حظر الطرف')),
+                PopupMenuItem(value: 'unmatch', child: Text('إلغاء المطابقة')),
+              ],
+            ),
+          ),
+          const NotificationBell(),
+        ],
       ),
       body: SafeArea(
         child: Column(

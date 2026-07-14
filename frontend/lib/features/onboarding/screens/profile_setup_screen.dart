@@ -5,6 +5,7 @@ import '../../../core/theme/app_theme.dart';
 import '../../../core/data/saudi_cities.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'oath_screen.dart';
+import 'consent_screen.dart';
 import 'welcome_screen.dart';
 
 class ProfileSetupScreen extends StatefulWidget {
@@ -166,9 +167,17 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
           )
         );
 
+        // Blocking versioned consent before proceeding (B2).
         Navigator.push(
           context,
-          MaterialPageRoute(builder: (context) => OathScreen(profileId: profileId)),
+          MaterialPageRoute(
+            builder: (context) => ConsentScreen(
+              onConsented: () => Navigator.pushReplacement(
+                context,
+                MaterialPageRoute(builder: (_) => OathScreen(profileId: profileId)),
+              ),
+            ),
+          ),
         );
       } catch (e) {
         if (!mounted) return;
