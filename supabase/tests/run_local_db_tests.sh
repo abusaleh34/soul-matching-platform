@@ -84,6 +84,10 @@ echo "== Right to erasure (deleter purged, partner keeps closed room) =="
 "${PSQL[@]}" -f "$HERE/70_erasure.sql" >/tmp/erasure.out 2>&1 \
   && ok "right to erasure" || { bad "right to erasure"; tail -12 /tmp/erasure.out; }
 
+echo "== Safety (block/report/unmatch, admin-only reports, IDOR) =="
+"${PSQL[@]}" -f "$HERE/80_safety.sql" >/tmp/safety.out 2>&1 \
+  && ok "safety block/report/unmatch" || { bad "safety block/report/unmatch"; tail -12 /tmp/safety.out; }
+
 echo "== RLS negative checks (each MUST be rejected) =="
 A="00000000-0000-0000-0000-00000000000a"
 B="00000000-0000-0000-0000-00000000000b"
